@@ -107,7 +107,6 @@ class FiniteElementBasis(Basis):
 
         family, degree = element_type.split()[0:2]
         self.fs  = df.FunctionSpace(mesh,family,int(degree))
-        self.dfs  = df.FunctionSpace(mesh,family,int(degree))
         super().__init__(self.fs.dim(), region=region, size=size, center=center, offset=offset )
 
 
@@ -133,9 +132,6 @@ class FiniteElementBasis(Basis):
         ofs = 0.0 if differential else -1.0*self.offset
         g = make_dolfin_callable(g, grid=grid, fs=self.fs, offset=ofs)
         return df.project(g, self.fs).vector().vec().array
-
-    def eval_derivatives():
-        return
     
     def parameterized_function(self, beta_vector):
         """

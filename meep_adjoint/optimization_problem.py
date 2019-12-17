@@ -109,6 +109,7 @@ class OptimizationProblem(object):
         #-----------------------------------------------------------------------
         self.basis = basis
         design_region = self.basis.domain
+
         sources = sim.sources
         rescale_sources(sources)
 

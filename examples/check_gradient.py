@@ -156,9 +156,10 @@ for k in range(n):
     b0_1[k] += db
     print(b0_0)
     print(b0_1)
-
-    f0 = np.real(f( b0_0))
-    f1 = np.real(f( b0_1))
+    temp, _ = opt_prob(b0_0)
+    f0 = np.real(temp[0])
+    temp, _ = opt_prob(b0_1)
+    f1 = np.real(temp[0])
     g_discrete[k] = (f1 - f0) / (2*db)
 #----------------------------------------------------------------------
 # -- Compare

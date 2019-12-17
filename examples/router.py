@@ -151,7 +151,7 @@ n = basis.dim
 b0 = 3.45**2*np.random.rand(n) + 1
 lb = np.ones((n,))
 ub = 3.45**2*np.ones((n,)) + 1
-maxeval = 10
+maxeval = 50
 maxtime = 10*60
 
 algorithm = nlopt.LD_TNEWTON

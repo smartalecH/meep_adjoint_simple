@@ -2,7 +2,6 @@ import meep as mp
 import meep_adjoint as mpa
 import numpy as np
 from matplotlib import pyplot as plt
-import nlopt
 
 mp.quiet(quietval=True)
 
@@ -20,8 +19,8 @@ fwidth = 0.1*fcen
 #----------------------------------------
 waveguide_width = 0.5
 waveguide_h     = 0
-l_stub          = 3.0                         # waveguide stub length
-l_design        = 4.0                         # design region side length
+l_stub          = 1.0                         # waveguide stub length
+l_design        = 1.0                         # design region side length
 
 #----------------------------------------
 # computational cell
@@ -72,7 +71,7 @@ sources = [mp.Source(mp.GaussianSource(frequency=fcen,fwidth=fwidth),
 
 design_size   = mp.Vector3(l_design, l_design, waveguide_h)
 design_region = mpa.Subregion(fcen, df, nfreq, name='design', center=mp.Vector3(), size=design_size)
-element_length = 0.2
+element_length = 1
 element_type = 'CG 1'
 
 basis = mpa.FiniteElementBasis(region=design_region,
@@ -133,42 +132,45 @@ opt_prob = mpa.OptimizationProblem(
     beta_vector=beta_vector,
     design_function=design_function
 )
-
-it = 0
-results = []
-def J(b,grad):
-    global it
-    f, g = opt_prob(b)
-    grad[:] = np.real(g)
-    results.append(f[0])
-    opt_prob.visualize()
-    #plt.imshow(np.rot90(fields),alpha=0.3)
-    plt.savefig('state_{}.png'.format(it))
-    it+=1
-    return np.real(f[0])
-
+f, _ = opt_prob.get_fdf_funcs()
 n = basis.dim
-b0 = 3.45**2*np.random.rand(n) + 1
-lb = np.ones((n,))
-ub = 3.45**2*np.ones((n,)) + 1
-maxeval = 10
-maxtime = 10*60
+b0 = 9*np.ones((n,))
 
-algorithm = nlopt.LD_TNEWTON
-opt = nlopt.opt(algorithm, n)
-opt.set_max_objective(J)
-opt.set_lower_bounds(lb)
-opt.set_upper_bounds(ub)
-opt.set_maxeval(maxeval)
-opt.set_maxtime(maxtime)
-bopt = opt.optimize(b0)
-print(bopt)
+#----------------------------------------------------------------------
+# -- Solve adjoint problem
+#----------------------------------------------------------------------
+f_adjoint, g_adjoint = opt_prob(b0)
 
-plt.figure()
-opt_prob.visualize()
+#----------------------------------------------------------------------
+# -- Solve discrete problem
+#----------------------------------------------------------------------
+db = 1e-3
+g_discrete = 0*np.ones((n,))
+for k in range(n):
+    b0_0 = np.ones((n,))
+    b0_1 = np.ones((n,))
 
-plt.figure()
-plt.plot(results,'-o')
+    b0_0[:] = b0
+    b0_0[k] -= db
+    b0_1[:] = b0
+    b0_1[k] += db
+    print(b0_0)
+    print(b0_1)
 
-plt.show()
+    f0 = np.real(f( b0_0))
+    f1 = np.real(f( b0_1))
+    g_discrete[k] = (f1 - f0) / (2*db)
+#----------------------------------------------------------------------
+# -- Compare
+#----------------------------------------------------------------------
+norm_adjoint = np.sqrt(np.sum(g_adjoint**2))
+norm_discrete = np.sqrt(np.sum(g_discrete**2))
 
+print("adjoint method: {}".format(g_adjoint))
+print("discrete method: {}".format(g_discrete))
+print("Difference: {}".format(g_adjoint-g_discrete))
+print("MSE: {}".format(np.sqrt(np.abs(np.sum(norm_adjoint**2 - norm_discrete**2)))))
+print("NORMS")
+print("adjoint method: {}".format(g_adjoint/norm_adjoint))
+print("discrete method: {}".format(g_discrete/norm_discrete))
+print("Difference: {}".format(g_adjoint/norm_adjoint-g_discrete/norm_discrete))

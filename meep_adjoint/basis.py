@@ -33,7 +33,7 @@ import re
 import numpy as np
 import meep as mp
 
-from . import v3, V3, Subregion
+from . import Subregion
 
 class GridFunc(object):
     """Given a grid of spatial points {x_n} and a scalar function of a
@@ -185,7 +185,7 @@ class Basis(ABC):
     an example of such a situation, see the implementation of `FiniteElementBasis.
     """
 
-    def __init__(self, dim, region=None, size=None, center=v3(), offset=0.0):
+    def __init__(self, dim, region=None, size=None, center=mp.Vector3(), offset=0.0):
         self.dim, self.offset = dim, offset
         self.region = region if region else Subregion(center=center,size=size)
 

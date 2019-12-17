@@ -78,3 +78,5 @@ ENV/
 .tags
 .idea
 
+# mac specific files
+.DS_Store

@@ -2,7 +2,6 @@
 
 import os
 import sys
-import psutil
 import time
 import numpy as np
 import meep as mp
@@ -10,36 +9,7 @@ import meep as mp
 import warnings
 from datetime import datetime as dt2
 
-from . import (ObjectiveFunction, Basis, v3, V3, E_CPTS, log, update_dashboard)
-from . import get_adjoint_option as adj_opt
-
-from .console_manager import CODEWORD as CONSOLE_CODEWORD
-from .console_manager import termsty
-
-# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-#########################################################
-# step function to update GUI dashboard progress bar
-#########################################################
-mt0, wt0, wtdb, wtcpu = 0, 0, 0, 0
-update_interval, cpu_interval, proc = 1, 2, psutil.Process(os.getpid())
-def dashboard_sf(sim):
-    """Provisional implementation of step function to update GUI dashboard."""
-    global mt0, wt0, wtdb, wtcpu, update_interval, cpu_interval, proc
-    mt, wt = sim.round_time(), time.time()
-    if mt>mt0 and (wt-wtdb)>=update_interval:
-        updates = ['progress {}'.format(int(mt)),
-                   'ms_per_timestep {}'.format(1000.0*(wt-wt0)/(mt-mt0))]
-        if (wt-wtcpu) > cpu_interval:
-            wtcpu = wt
-            updates += ['cpu_usage {:.1f}'.format(proc.cpu_percent())]
-        update_dashboard(updates)
-        mt0, wt0, wtdb = mt, wt, wt
-# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
+from . import (ObjectiveFunction, Basis, E_CPTS)
 
 class TimeStepper(object):
     """
@@ -114,6 +84,7 @@ class TimeStepper(object):
         self.design_cell = dft_cells[-1]
         self.basis       = basis
         self.sim         = sim
+        self.cmplx       = sim.force_complex_fields
         self.fwd_sources = fwd_sources
         self.dfdEps      = None
         self.state       = 'reset'
@@ -149,9 +120,9 @@ class TimeStepper(object):
         """
         if job=='forward':
             retvals = self.obj_func(self.dft_cells)
-            log('   ** {:10s}={:.5f}  ** '.format('t',self.sim.round_time()))
-            for n,v in zip(['f'] + self.obj_func.qnames, retvals):
-                log('   ** {:10s}={:+.5e}    '.format(n,v))
+            #print('   ** {:10s}={:.5f}  ** '.format('t',self.sim.round_time()))
+            #for n,v in zip(['f'] + self.obj_func.qnames, retvals):
+                #print('   ** {:10s}={:+.5e}    '.format(n,v))
         else: # job=='adjoint'
             EH_fwd = self.design_cell.get_EH_slices(label='forward')
             EH_adj = self.design_cell.get_EH_slices()
@@ -178,9 +149,9 @@ class TimeStepper(object):
         self.prepare(job)
 
         last_source_time = self.fwd_sources[0].src.swigobj.last_time()
-        max_time         = adj_opt('dft_timeout')*last_source_time
-        check_interval   = adj_opt('dft_interval')*last_source_time
-        reltol           = adj_opt('dft_reltol')
+        max_time         = 10e3#adj_opt('dft_timeout')*last_source_time
+        check_interval   = 0.25#adj_opt('dft_interval')*last_source_time
+        reltol           = 1.0e-6#adj_opt('dft_reltol')
 
         # configure real-time animations of evolving time-domain fields
 #        step_funcs = []
@@ -191,56 +162,42 @@ class TimeStepper(object):
 #            step_funcs = [ AFEClient(self.sim, clist, interval=ivl) ]
 
         # phase 1: timestepping without interruption until the sources are extinguished
-        prefix = CONSOLE_CODEWORD if adj_opt('silence_meep') else ''
-        log("Beginning {} timestepping run...".format(job))
+        #prefix = CONSOLE_CODEWORD if adj_opt('silence_meep') else ''
+        #log("Beginning {} timestepping run...".format(job))
 
-        update_dashboard(['run {}'.format(job)])
-        global mt0, wt0, wtdb, wtcpu, proc
-        dummy = proc.cpu_percent()
+        #update_dashboard(['run {}'.format(job)])
+        #global mt0, wt0, wtdb, wtcpu, proc
+        #dummy = proc.cpu_percent()
 
-        stage, mta, mtb = 'SOURCES', 0, last_source_time
-        update_dashboard(['stage {}'.format(stage),
-                          'progress range {} {}'.format(int(mta),int(mtb))])
-        log('stepping from {} to {}'.format(mta,mtb))
+        #stage, mta, mtb = 'SOURCES', 0, last_source_time
+        mtb = last_source_time
+        #update_dashboard(['stage {}'.format(stage),
+        #                  'progress range {} {}'.format(int(mta),int(mtb))])
+        #log('stepping from {} to {}'.format(mta,mtb))
 #        sys.stdout.write(prefix + '**stepping from {} to {}\n'.format(mta,mtb))
-        sys.stdout.write(prefix + termsty(job,'1')   + '  '   \
-                                + termsty(stage,'2') + '  '   \
-                                + termsty('{:5.1f} -> t -> {:5.1f}'.format(mta,mtb),'3'))
-        mt0, wt0 = mta, time.time()
-        wtdb, wtcpu, dt = wt0, wt0, (mtb-mta)/100.0
+        #sys.stdout.write(prefix + termsty(job,'1')   + '  '   \
+        #                        + termsty(stage,'2') + '  '   \
+        #                        + termsty('{:5.1f} -> t -> {:5.1f}'.format(mta,mtb),'3'))
+        #mt0, wt0 = mta, time.time()
+        #wtdb, wtcpu, dt = wt0, wt0, (mtb-mta)/100.0
 
-        self.sim.run(mp.at_every(dt, dashboard_sf), until=mtb)
+        self.sim.run(until_after_sources=0)
         vals = self.__update__(job)
 
         # now continue timestepping with intermittent convergence checks until
         # we converge or timeout
         stage, max_rel_delta = 0, 1.0e9
         while max_rel_delta>reltol and self.sim.round_time() < max_time:
-
-            #check_time = self.sim.round_time() + check_interval
-            #self.sim.run(*step_funcs, until = min(check_time, max_time))
             mta, mtb, stage = mtb, min(mtb + check_interval, max_time), stage+1
-            update_dashboard(['stage conv {}'.format(stage),
-                              'progress range {} {}'.format(int(mta),int(mtb))])
-            log('stepping from {} to {}'.format(mta,mtb))
-#            sys.stdout.write(prefix + '**stepping from {} to {}\n'.format(mta,mtb))
-            sys.stdout.write(prefix + termsty(job,'1')                                      \
-                             + '  ' + termsty('CONV {:<2d}'.format(stage),'2')              \
-                             + '  ' + termsty('[{:5.1f} -> t -> {:5.1f}]'.format(mta,mtb),'3')  \
-                             + '  ' + termsty('delta {:.2e}'.format(max_rel_delta),'4'))
-            mt0, wt0 = mta, time.time()
-            wtdb, wtcpu, dt = wt0, wt0, (mtb-mta)/100.0
-            self.sim.run(mp.at_every(dt, dashboard_sf), until=mtb)
-
+            self.sim.run(until=mtb)
             last_vals, vals = vals, self.__update__(job)
             rel_delta = np.array( [rel_diff(v,lv) for v,lv in zip(vals,last_vals)] )
             max_rel_delta = np.amax(rel_delta)
-            log('   ** t={} MRD={} ** '.format(self.sim.round_time(), max_rel_delta))
+            print('   ** t={} MRD={} ** '.format(self.sim.round_time(), max_rel_delta))
 
         # for forward runs we save the converged DFT fields for later use
         if job=='forward':
             [ cell.save_fields('forward') for cell in self.dft_cells ]
-            update_dashboard(['current {:.2f}'.format(np.real(vals[0]))])
         self.state = job + '.complete'
         return vals
 
@@ -266,7 +223,7 @@ class TimeStepper(object):
         if job=='forward':
             sources = self.fwd_sources
             cells   = self.dft_cells  # for forward runs we must tabulate DFT fields in all DFT cells...
-            cmplx   = adj_opt('complex_fields')
+            cmplx   = self.cmplx
         elif job=='adjoint' or job in self.obj_func.qnames:
             sources = self.get_adjoint_sources ( qname = job )
             cells   = [self.design_cell]  # ...for adjoint runs we only need DFT fields in the design region
@@ -276,16 +233,8 @@ class TimeStepper(object):
 
         # place sources, register cells, initialize fields
         reuse_simulation = False
-        if adj_opt('reuse_simulation'):
-            self.sim.reset_meep()
-            self.sim.change_sources(sources)
-        else:
-            cell_size, geometry = self.sim.cell_size, self.sim.geometry
-            self.sim = mp.Simulation(resolution=self.sim.resolution,
-                                     boundary_layers=self.sim.boundary_layers,
-                                     cell_size=self.sim.cell_size,
-                                     geometry=self.sim.geometry,
-                                     sources=sources)
+        self.sim.reset_meep()
+        self.sim.change_sources(sources)
         self.force_complex_fields = cmplx
         self.sim.init_sim()
         for cell in cells:
@@ -345,14 +294,15 @@ class TimeStepper(object):
                 sign  =  1.0 if code=='P' else -1.0
                 signs = [ +1.0, -1.0, +1.0*sign, -1.0*sign ]
                 sources += [ mp.Source(envelope, cell.components[3-nc],
-                                       V3(cell.region.center), V3(cell.region.size),
+                                       cell.region.center, cell.region.size,
                                        amplitude=signs[nc]*factor*qweight,
                                        amp_data=np.reshape(np.conj(EH[nc]),shape)
                                       ) for nc in range(len(cell.components))
                            ]
         return sources
 
-
+def stop_when_dft_converges():
+    return
 
 
 def rel_diff(a,b):

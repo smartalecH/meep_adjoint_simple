@@ -9,7 +9,7 @@ import numpy as np
 
 import meep as mp
 
-from . import Basis, v3, V3
+from . import Basis
 
 ######################################################################
 # try to load dolfin (FENICS) module, but hold off on complaining if
@@ -94,12 +94,12 @@ class FiniteElementBasis(Basis):
             pmin, pmax = [ op(mesh.coordinates(),0) for op in [np.amin, np.amax] ]
             (center, size) = (0.5*(pmax+pmin), (pmax-pmin))
         else:
-            (center,size) = (v3(region.center), v3(region.size)) if region else (v3(center),v3(size))
+            (center,size) = (region.center, region.size) if region else (center,size)
             if not element_length:
                 element_length=np.amax(size)/10.0
-            nn = nseg if nseg else [ int(np.ceil(s/element_length)) for s in size ]
+            nn = nseg if nseg else [ int(np.ceil(s/element_length)) for s in np.array(size) ]
             nd = 3 if (len(nn)==3 and nn[2]>0) else 2
-            pmin, pmax = [ df.Point(center + pm*size) for pm in [-0.5,0.5] ]
+            pmin, pmax = [ df.Point(np.array(center) + pm*np.array(size)) for pm in [-0.5,0.5] ]
             if nd==2:
                 mesh = df.RectangleMesh(pmin,pmax,nn[0],nn[1],diagonal='left')
             else:
@@ -107,7 +107,8 @@ class FiniteElementBasis(Basis):
 
         family, degree = element_type.split()[0:2]
         self.fs  = df.FunctionSpace(mesh,family,int(degree))
-        super().__init__(self.fs.dim(), size=size, center=center, offset=offset )
+        self.dfs  = df.FunctionSpace(mesh,family,int(degree))
+        super().__init__(self.fs.dim(), region=region, size=size, center=center, offset=offset )
 
 
     def project(self, g, grid=None, differential=False):
@@ -133,7 +134,9 @@ class FiniteElementBasis(Basis):
         g = make_dolfin_callable(g, grid=grid, fs=self.fs, offset=ofs)
         return df.project(g, self.fs).vector().vec().array
 
-
+    def eval_derivatives():
+        return
+    
     def parameterized_function(self, beta_vector):
         """
         Construct and return a callable, updatable element of the function space.
@@ -167,7 +170,7 @@ class FiniteElementBasis(Basis):
             def set_coefficients(self, beta_vector):
                 self.f.vector().set_local(beta_vector)
             def __call__(self, p):
-                return self.offset + self.f(df.Point(v3(p)))
+                return self.offset + self.f(df.Point(np.array(p)))
             def func(self):
                 def _f(p):
                     return self(p)

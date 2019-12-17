@@ -5,14 +5,8 @@ import inspect
 
 import meep as mp
 
-from . import (DFTCell, ObjectiveFunction, TimeStepper, ConsoleManager,
-               FiniteElementBasis, rescale_sources, E_CPTS, v3, V3,
-               init_log, launch_dashboard, ConsoleManager)
+from . import (DFTCell, ObjectiveFunction, TimeStepper, FiniteElementBasis, rescale_sources, E_CPTS)
 
-from . import visualize_sim
-
-from . import get_adjoint_option as adj_opt
-from .adjoint_options import set_adjoint_options
 
 ######################################################################
 ######################################################################
@@ -33,13 +27,14 @@ class OptimizationProblem(object):
 
     """
 
-    def __init__(self, cell_size=None, background_geometry=[], foreground_geometry=[],
-                       sources=None, source_region=[],
-                       objective_regions=[],
-                       basis=None, design_region=None,
-                       extra_regions=[],
-                       objective_function=None,
-                       extra_quantities=[]):
+    def __init__(self, 
+                 sim,
+                 objective_regions,
+                 basis,
+                 objective_function,
+                 beta_vector,
+                 design_function
+                 ):
         """
         Parameters:
         -----------
@@ -112,34 +107,22 @@ class OptimizationProblem(object):
         #  (b) if no sources were specified, create one using the given source
         #      region plus global option values
         #-----------------------------------------------------------------------
-        self.basis = basis or FiniteElementBasis(region=design_region,
-                                                 element_length=adj_opt('element_length'),
-                                                 element_type=adj_opt('element_type'))
+        self.basis = basis
         design_region = self.basis.domain
-        design_region.name = design_region.name or 'design'
-
-        if not sources:
-            f, df, m, c = [ adj_opt(s) for s in ['fcen', 'df', 'source_mode', 'source_component'] ]
-            envelope    = mp.GaussianSource(f, fwidth=df)
-            kws         = { 'center': V3(source_region.center), 'size': V3(source_region.size),
-                            'src': envelope} #, 'eig_band': m, 'component': c }
-            sources     = [ mp.EigenModeSource(eig_band=m,**kws) if m>0 else mp.Source(component=c, **kws) ]
+        sources = sim.sources
         rescale_sources(sources)
-
 
         #-----------------------------------------------------------------------
         # initialize lower-level helper classes
         #-----------------------------------------------------------------------
         # DFTCells
         dft_cell_names  = []
-        objective_cells = [ DFTCell(r) for r in objective_regions ]
-        extra_cells     = [ DFTCell(r) for r in extra_regions ]
+        objective_cells = [ DFTCell(r) for r in objective_regions]
         design_cell     = DFTCell(design_region, E_CPTS)
-        dft_cells       = objective_cells + extra_cells + [design_cell]
+        dft_cells       = objective_cells + [design_cell]
 
         # ObjectiveFunction
-        obj_func        = ObjectiveFunction(fstr=objective_function,
-                                            extra_quantities=extra_quantities)
+        obj_func        = ObjectiveFunction(fstr=objective_function)
 
         # initial values of (a) design variables, (b) the spatially-varying
         # permittivity function they define (the 'design function'), (c) the
@@ -149,32 +132,11 @@ class OptimizationProblem(object):
         # Note that sources and DFT cells are not added to the Simulation at
         # this stage; this is done later by internal methods of TimeStepper
         # on a just-in-time basis before starting a timestepping run.
-        self.beta_vector     = self.basis.project(adj_opt('eps_design'))
-        self.design_function = self.basis.parameterized_function(self.beta_vector)
-        design_object   = mp.Block(center=V3(design_region.center), size=V3(design_region.size),
-                                   epsilon_func = self.design_function.func())
-        geometry        = background_geometry + [design_object] + foreground_geometry
-        sim             = mp.Simulation(resolution=adj_opt('res'), cell_size=V3(cell_size),
-                                        boundary_layers=[mp.PML(adj_opt('dpml'))],
-                                        geometry=geometry)
+
+        self.design_function = design_function
 
         # TimeStepper
         self.stepper    = TimeStepper(obj_func, dft_cells, self.basis, sim, sources)
-
-        #-----------------------------------------------------------------------
-        # if the 'filebase' configuration option wasn't specified, set it
-        # to the base filename of the caller's script
-        #-----------------------------------------------------------------------
-        if not adj_opt('filebase'):
-            script = inspect.stack()[1][0].f_code.co_filename or 'meep_adjoint'
-            script_base = os.path.basename(script).split('.')[0]
-            set_adjoint_options({'filebase': os.path.basename(script_base)})
-
-        if mp.am_master():
-            init_log(filename=adj_opt('logfile') or adj_opt('filebase') + '.log', usecs=True)
-
-        self.dashboard_state = None
-
 
     #####################################################################
     # The basic task of an OptimizationProblem: Given a candidate design
@@ -217,7 +179,7 @@ class OptimizationProblem(object):
             If need_value or need_gradient is False, then fq or gradf in the return
             tuple will be None.
         """
-        if beta_vector or design:
+        if (beta_vector is not None) or (design is not None):
             self.update_design(beta_vector=beta_vector, design=design)
 
         #######################################################################
@@ -229,13 +191,8 @@ class OptimizationProblem(object):
             warnings.warn('forward run not yet run for this design; ignoring request to omit')
             need_value = True
 
-        if self.dashboard_state is None:
-            launch_dashboard(name=adj_opt('filebase'))
-            self.dashboard_state = 'launched'
-
-        with ConsoleManager() as cm:
-            fq    = self.stepper.run('forward') if need_value else None
-            gradf = self.stepper.run('adjoint') if need_gradient else None
+        fq    = self.stepper.run('forward') if need_value else None
+        gradf = self.stepper.run('adjoint') if need_gradient else None
 
         return fq, gradf
 
@@ -275,17 +232,6 @@ class OptimizationProblem(object):
            If design is specified, the function it describes is projected
            onto the basis set to yield the new beta_vector.
 
-           In either case, before accepting the new coefficient vector
-           we apply a componentwise clipping operation to ensure that
-           all coefficients lie in the range [beta_min, beta_max]
-           (where beta_{min,max} are configurable options). For
-           finite-element bases this simple constraint form suffices to
-           ensure physicality of the permittivity, but for other basis
-           sets the physicality constraint will be more complicated to
-           implement, and we should probably introduce a mechanism for
-           building the constraints into the Basis class and subclasses.
-
-
         Parameters
         ----------
         beta_vector: np.array
@@ -295,7 +241,6 @@ class OptimizationProblem(object):
             new permittivity function
         """
         self.beta_vector = self.basis.project(design) if design else beta_vector
-        self.beta_vector.clip(adj_opt('beta_min'), adj_opt('beta_max'))
         self.design_function.set_coefficients(self.beta_vector)
         self.stepper.state='reset'
 
@@ -303,11 +248,12 @@ class OptimizationProblem(object):
     #####################################################################
     #####################################################################
     #####################################################################
-    def visualize(self, id=None, options={}):
+    def visualize(self, id=None, pmesh=False):
         """Produce a graphical visualization of the geometry and/or fields,
            as appropriately autodetermined based on the current state of
            progress.
         """
+        
         if self.stepper.state=='reset':
             self.stepper.prepare('forward')
 
@@ -316,9 +262,26 @@ class OptimizationProblem(object):
 
         fig = plt.figure(num=id) if id else None
 
+        self.stepper.sim.plot2D()
+        if mesh is not None and pmesh:
+            plot_mesh(mesh)
+        '''
         if self.stepper.state.endswith('.prepared'):
             visualize_sim(self.stepper.sim, self.stepper.dft_cells, mesh=mesh, fig=fig, options=options)
         elif self.stepper.state == 'forward.complete':
             visualize_sim(self.stepper.sim, self.stepper.dft_cells, mesh=mesh, fig=fig, options=options)
         #else self.stepper.state == 'adjoint.complete':
         #            visualize_sim(self.stepper.sim, self.stepper.dft_cells, mesh=mesh, fig=fig, options=options)
+        '''
+
+def plot_mesh(mesh,lc='g',lw=1):
+    """Helper function. Invoke FENICS/dolfin plotting routine to plot FEM mesh"""
+
+    keys = ['linecolor', 'linewidth']
+    if lw==0.0:
+        return
+    try:
+        import dolfin as df
+        df.plot(mesh, color=lc, linewidth=lw)
+    except ImportError:
+        warnings.warn('failed to import dolfin module; omitting FEM mesh plot')

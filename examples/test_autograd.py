@@ -11,7 +11,7 @@ import copy
 #- autograd
 #----------------------------------------------------------------------
 
-def my_func(x):
+'''def my_func(x):
     return np.sum(np.tanh(x))
 
 dx = 1e-1
@@ -35,7 +35,7 @@ for k in range(4):
 
 print(discrete_grad)
 
-quit()
+quit()'''
 
 l_design = 1
 waveguide_h = 0
@@ -50,13 +50,11 @@ element_type = 'CG 1'
 design_size   = mp.Vector3(l_design, l_design, waveguide_h)
 design_region = mpa.Subregion(fcen, name='design', center=mp.Vector3(), size=design_size)
 
-basis = mpa.FiniteElementBasis(region=design_region,
-                               element_length=element_length,
-                               element_type=element_type)
+basis = mpa.UniformBasis(region=design_region)
 
 n = basis.dim
 print(n)
-beta_vector = 10*np.random.rand(n)
+beta_vector = 8
 design_function = basis.parameterized_function(beta_vector)
 
 N = 100
@@ -70,11 +68,11 @@ for nx,ix in enumerate(x):
         vecs.append(v)
         eps[nx,ny] = design_function(v)
 
+grid = mpa.make_grid(size=[1,1],center=[0,0],dims=[N,N])
+p_hat = basis.project(eps, grid=grid, differential=True)
 
-print(np.array(basis.gram_matrix()).shape)
+print(beta_vector)
+print(p_hat)
 
-
-
-plt.figure()
-plt.imshow(np.rot90(eps))
-plt.show()
+err = abs(beta_vector-p_hat)
+print(err)

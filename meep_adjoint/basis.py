@@ -264,6 +264,37 @@ class Basis(ABC):
             g_dot_b += w * ( gn(n)-self.offset ) * self.get_bvector(p)
         return g_dot_b
 
+class UniformBasis(Basis):
+    ''' A simple 1D basis mainly used for debugging and testing. The user provides an epsilon value
+    and the basis will fill the entire domain with that epsilon value.'''
+    
+    def __init__(self,region):
+        super().__init__(1, region=region, size=region.size, center=region.center)
+        return
+    
+    def parameterized_function(self, eps):
+        class _ParameterizedFunction(object):
+            def __init__(self, basis, eps):
+                self.eps=eps
+            def set_coefficients(self, eps):
+                self.eps = eps
+            def __call__(self, p):
+                return self.eps
+            def func(self):
+                def _f(p):
+                    return self(p)
+                return _f
+
+        return _ParameterizedFunction(self, eps)
+    
+    def project(self,g,grid=None,differential=False):
+        from scipy.stats import mode
+        gf = np.squeeze(g).flatten()
+        return np.array([np.mean(gf)])
+
+    def get_bvector(self, p):
+        return
+
 
     ##########################################################
     # basis_function overlap matrix, gm_{ij} = <b_i | b_j>.

@@ -227,7 +227,6 @@ class ObjectiveFunction(object):
         # plug in objective-quantity values to get value of objective function
         fval=self.fexpr.evalf(subs=self.riqvals)
         fval=complex(fval) if fval.is_complex else float(fval)
-
         return np.array( [np.real(fval)] + list(self.qvals) )
 
 

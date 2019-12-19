@@ -111,7 +111,7 @@ class OptimizationProblem(object):
         design_region = self.basis.domain
 
         sources = sim.sources
-        rescale_sources(sources)
+        #rescale_sources(sources)
 
         #-----------------------------------------------------------------------
         # initialize lower-level helper classes
@@ -191,8 +191,9 @@ class OptimizationProblem(object):
         if need_value == False and self.stepper.state == 'reset':
             warnings.warn('forward run not yet run for this design; ignoring request to omit')
             need_value = True
-
+        print("FORWARD RUN")
         fq    = self.stepper.run('forward') if need_value else None
+        print("ADJOINT RUN")
         gradf = self.stepper.run('adjoint') if need_gradient else None
 
         return fq, gradf
@@ -266,21 +267,9 @@ class OptimizationProblem(object):
         self.stepper.sim.plot2D()
         if mesh is not None and pmesh:
             plot_mesh(mesh)
-        '''
-        if self.stepper.state.endswith('.prepared'):
-            visualize_sim(self.stepper.sim, self.stepper.dft_cells, mesh=mesh, fig=fig, options=options)
-        elif self.stepper.state == 'forward.complete':
-            visualize_sim(self.stepper.sim, self.stepper.dft_cells, mesh=mesh, fig=fig, options=options)
-        #else self.stepper.state == 'adjoint.complete':
-        #            visualize_sim(self.stepper.sim, self.stepper.dft_cells, mesh=mesh, fig=fig, options=options)
-        '''
 
 def plot_mesh(mesh,lc='g',lw=1):
     """Helper function. Invoke FENICS/dolfin plotting routine to plot FEM mesh"""
-
-    keys = ['linecolor', 'linewidth']
-    if lw==0.0:
-        return
     try:
         import dolfin as df
         df.plot(mesh, color=lc, linewidth=lw)

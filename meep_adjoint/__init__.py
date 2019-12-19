@@ -17,7 +17,7 @@ from .dft_cell import (XHAT, YHAT, ZHAT, E_CPTS, H_CPTS, EH_CPTS,
 
 from .objective import ObjectiveFunction
 
-from .basis import Basis
+from .basis import (Basis, UniformBasis)
 
 from .finite_element_basis import FiniteElementBasis
 

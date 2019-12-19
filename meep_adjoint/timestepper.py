@@ -263,9 +263,9 @@ class TimeStepper(object):
         envelope = self.fwd_sources[0].src
         freq     = envelope.frequency
         omega    = 2.0*np.pi*freq
-        factor   = 2.0j*omega
-        if callable(getattr(envelope, "fourier_transform", None)):
-            factor /= envelope.fourier_transform(freq)
+        factor   = -1/(2.0*freq)#2*1j*omega
+        #if callable(getattr(envelope, "fourier_transform", None)):
+        #    factor /= envelope.fourier_transform(freq)
 
         ######################################################################
         # make a list of (qrule, qweight) pairs for all objective quantities
@@ -289,16 +289,17 @@ class TimeStepper(object):
             code, mode, cell = qrule.code, qrule.mode, self.dft_cells[qrule.ncell]
             EH = cell.get_eigenmode_slices(mode) if mode>0 else cell.get_EH_slices('forward')
             shape = [ len(tics) for tics in [cell.grid.xtics, cell.grid.ytics, cell.grid.ztics] ]
-
             if code in 'PM':
                 sign  =  1.0 if code=='P' else -1.0
-                signs = [ +1.0, -1.0, +1.0*sign, -1.0*sign ]
+                signs = [ +1.0, -1.0, -1.0*sign, +1.0*sign ]
                 sources += [ mp.Source(envelope, cell.components[3-nc],
                                        cell.region.center, cell.region.size,
                                        amplitude=signs[nc]*factor*qweight,
                                        amp_data=np.reshape(np.conj(EH[nc]),shape)
                                       ) for nc in range(len(cell.components))
                            ]
+            else:
+                raise TypeError("Only modal objective functions are currently supported.")
         return sources
 
 def stop_when_dft_converges():

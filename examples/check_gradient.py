@@ -78,6 +78,8 @@ basis = mpa.FiniteElementBasis(region=design_region,
                                element_length=element_length,
                                element_type=element_type)
 
+#basis = mpa.UniformBasis(region=design_region)
+
 beta_vector = basis.project(3.45**2)
 design_function = basis.parameterized_function(beta_vector)
 design_object = [mp.Block(center=design_region.center, size=design_region.size, epsilon_func = design_function.func())]
@@ -115,9 +117,10 @@ objective_regions = [north, south, east, west1, west2]
 # objective function and extra objective quantities -------------------
 #----------------------------------------------------------------------
 splitter = False
-fobj_router   = '|P1_north/P1_west1|^2'
+#fobj_router   = '|P1_north/P1_west1|^2'
+fobj_router = '|P1_east|^2'
 fobj_splitter = '( |P1_north| - |P1_east| )^2 + ( |P1_east| - |M1_south| )^2'
-objective_function = fobj_splitter if splitter else fobj_router
+objective_function = fobj_router
 extra_quantities = ['S_north', 'S_south', 'S_east', 'S_west1', 'S_west2']
 
 #----------------------------------------------------------------------
@@ -135,7 +138,9 @@ opt_prob = mpa.OptimizationProblem(
 f, _ = opt_prob.get_fdf_funcs()
 n = basis.dim
 b0 = 9*np.ones((n,))
-
+#opt_prob.visualize()
+#plt.show()
+#quit()
 #----------------------------------------------------------------------
 # -- Solve adjoint problem
 #----------------------------------------------------------------------
@@ -144,7 +149,7 @@ f_adjoint, g_adjoint = opt_prob(b0)
 #----------------------------------------------------------------------
 # -- Solve discrete problem
 #----------------------------------------------------------------------
-db = 1e-3
+db = 1e-8
 g_discrete = 0*np.ones((n,))
 for k in range(n):
     b0_0 = np.ones((n,))
@@ -157,8 +162,10 @@ for k in range(n):
     print(b0_0)
     print(b0_1)
     temp, _ = opt_prob(b0_0)
+
     f0 = np.real(temp[0])
     temp, _ = opt_prob(b0_1)
+
     f1 = np.real(temp[0])
     g_discrete[k] = (f1 - f0) / (2*db)
 #----------------------------------------------------------------------
@@ -175,3 +182,5 @@ print("NORMS")
 print("adjoint method: {}".format(g_adjoint/norm_adjoint))
 print("discrete method: {}".format(g_discrete/norm_discrete))
 print("Difference: {}".format(g_adjoint/norm_adjoint-g_discrete/norm_discrete))
+
+print("ratio: {}".format(g_adjoint/g_discrete))

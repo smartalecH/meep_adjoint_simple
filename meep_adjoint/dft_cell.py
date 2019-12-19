@@ -395,7 +395,7 @@ class DFTCell(object):
         return eh_slices
 
 
-    def __call__(self, qcode, mode=0, nf=0):
+    def __call__(self, qcode, mode=1, nf=0):
         """Compute and return the value of an objective quantity.
 
         Computes an objective quantity, i.e. an eigenmode
@@ -427,7 +427,12 @@ class DFTCell(object):
             eH = np.sum( w*(np.conj(eh[0])*EH[3] - np.conj(eh[1])*EH[2]) )
             hE = np.sum( w*(np.conj(eh[3])*EH[0] - np.conj(eh[2])*EH[1]) )
             sign=1.0 if qcode in ['P','F'] else -1.0
-            return (eH + sign*hE)/4.0
+            temp = (eH + sign*hE)/4.0
+            return temp
+
+            #sign=0 if qcode in ['P','F'] else 1
+            #ob = self.sim.get_eigenmode_coefficients(self.dft_obj,[mode])
+            #return ob.alpha[mode-1,nf,sign]
         if quantity in ['UE', 'UH', 'UM', 'UEH', 'UEM', 'UT']:
            q=0.0
            if quantity in ['UE', 'UEH', 'UEM', 'UT']:

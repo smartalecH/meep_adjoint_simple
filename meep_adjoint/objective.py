@@ -195,7 +195,6 @@ class ObjectiveFunction(object):
             df_diqn = sympy.diff(self.fexpr,self.riqsymbols[2*nq+1])
             self.dfexpr.append( df_drqn - sympy.I*df_diqn )
 
-
     def __call__(self, DFTCells, nf=0):
         """Compute objective quantities and objective function.
 

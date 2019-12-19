@@ -61,8 +61,11 @@ geometry = [ wvg_horizontal, wvg_vertical]
 #----------------------------------------------------------------------
 source_center  = - d_source*mpa.XHAT
 source_size    = 2.0*waveguide_width*mpa.YHAT
-sources = [mp.Source(mp.GaussianSource(frequency=fcen,fwidth=fwidth),
-                     component=mp.Ez,
+kpoint = 3*mpa.XHAT
+sources = [mp.EigenModeSource(mp.GaussianSource(frequency=fcen,fwidth=fwidth),
+                     eig_band = 1,
+                     direction=mp.NO_DIRECTION,
+                     eig_kpoint=kpoint,
                      size = source_size,
                      center=source_center)]
 #----------------------------------------------------------------------
@@ -138,9 +141,10 @@ opt_prob = mpa.OptimizationProblem(
 f, _ = opt_prob.get_fdf_funcs()
 n = basis.dim
 b0 = 9*np.ones((n,))
-#opt_prob.visualize()
-#plt.show()
-#quit()
+opt_prob.visualize(pmesh=True)
+'''plt.savefig('design_region.png')
+plt.show()
+quit()'''
 #----------------------------------------------------------------------
 # -- Solve adjoint problem
 #----------------------------------------------------------------------
@@ -171,16 +175,7 @@ for k in range(n):
 #----------------------------------------------------------------------
 # -- Compare
 #----------------------------------------------------------------------
-norm_adjoint = np.sqrt(np.sum(g_adjoint**2))
-norm_discrete = np.sqrt(np.sum(g_discrete**2))
 
 print("adjoint method: {}".format(g_adjoint))
 print("discrete method: {}".format(g_discrete))
-print("Difference: {}".format(g_adjoint-g_discrete))
-print("MSE: {}".format(np.sqrt(np.abs(np.sum(norm_adjoint**2 - norm_discrete**2)))))
-print("NORMS")
-print("adjoint method: {}".format(g_adjoint/norm_adjoint))
-print("discrete method: {}".format(g_discrete/norm_discrete))
-print("Difference: {}".format(g_adjoint/norm_adjoint-g_discrete/norm_discrete))
-
 print("ratio: {}".format(g_adjoint/g_discrete))

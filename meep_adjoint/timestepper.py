@@ -9,7 +9,7 @@ import meep as mp
 import warnings
 from datetime import datetime as dt2
 
-from . import (ObjectiveFunction, Basis, E_CPTS)
+from . import (ObjectiveFunction, Basis, E_CPTS, XHAT, YHAT, ZHAT)
 
 class TimeStepper(object):
     """
@@ -262,6 +262,7 @@ class TimeStepper(object):
         ######################################################################
         envelope = self.fwd_sources[0].src
         freq     = envelope.frequency
+        fwidth   = envelope.width
         omega    = 2.0*np.pi*freq
         factor   = -1/(2.0*freq)#2*1j*omega
         #if callable(getattr(envelope, "fourier_transform", None)):
@@ -291,13 +292,28 @@ class TimeStepper(object):
             shape = [ len(tics) for tics in [cell.grid.xtics, cell.grid.ytics, cell.grid.ztics] ]
             if code in 'PM':
                 sign  =  1.0 if code=='P' else -1.0
-                signs = [ +1.0, -1.0, -1.0*sign, +1.0*sign ]
-                sources += [ mp.Source(envelope, cell.components[3-nc],
+                '''signs = [ +1.0, -1.0, -1.0*sign, +1.0*sign ]'''
+                kpoint = 3
+                if cell.normal == mp.X:
+                    kpoint = sign*3*XHAT
+                elif cell.normal == mp.Y:
+                    kpoint = sign*3*YHAT
+                else:
+                    kpoint = sign*3*ZHAT
+                sources += [mp.EigenModeSource(mp.GaussianSource(frequency=freq,width=fwidth),
+                                    direction=mp.NO_DIRECTION,
+                                    eig_band = mode,
+                                    eig_kpoint=kpoint,
+                                    size = cell.region.size,
+                                    amplitude=factor*qweight,
+                                    center=cell.region.center)]
+                
+                '''sources += [ mp.Source(envelope, cell.components[3-nc],
                                        cell.region.center, cell.region.size,
                                        amplitude=signs[nc]*factor*qweight,
                                        amp_data=np.reshape(np.conj(EH[nc]),shape)
                                       ) for nc in range(len(cell.components))
-                           ]
+                           ]'''
             else:
                 raise TypeError("Only modal objective functions are currently supported.")
         return sources

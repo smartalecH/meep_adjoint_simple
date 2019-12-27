@@ -107,9 +107,16 @@ class FiniteElementBasis(Basis):
 
         family, degree = element_type.split()[0:2]
         self.fs  = df.FunctionSpace(mesh,family,int(degree))
+        self.vfs  = df.VectorFunctionSpace(mesh,family,int(degree))
         super().__init__(self.fs.dim(), region=region, size=size, center=center, offset=offset )
 
-
+    def deps_dp(self,eps,grid):
+        # get array of grid points that correspond to epsilon vector
+        eps = eps.flatten()
+        pts = np.array([[v.x,v.y,v.z] for v in grid.points])
+        M = make_interpolation_matrix(pts, self.fs)
+        return  eps * M
+    
     def project(self, g, grid=None, differential=False):
         """
         Given an arbitrary function g(x), invoke the performance-optimized routines
@@ -313,6 +320,40 @@ def FunctionFromSamples(g_samples, grid, offset=0.0):
     g.set_allow_extrapolation(True)
     return g
 
+def make_interpolation_matrix(xs, V):
+    import scipy.sparse as sps # lazy import for sparse matrix
+    nx, dim = xs.shape
+    mesh = V.mesh()
+    coords = mesh.coordinates()
+    cells = mesh.cells()
+    dolfin_element = V.dolfin_element()
+    dofmap = V.dofmap()
+    bbt = mesh.bounding_box_tree() 
+    sdim = dolfin_element.space_dimension()
+    v = np.zeros(sdim)
+    rows = np.zeros(nx*sdim, dtype='int')
+    cols = np.zeros(nx*sdim, dtype='int')  
+    vals = np.zeros(nx*sdim)
+    for k in range(nx):
+        # Loop over all interpolation points
+        x = xs[k,:]
+        p = df.Point(x[0],x[1])
+        # Find cell for the point
+        #cell_id = bbt.compute_first_entity_collision(p)
+        cell_id, d = bbt.compute_closest_entity(p)
+        # Vertex coordinates for the cell
+        xvert = coords[cells[cell_id,:],:]
+        # Evaluate the basis functions for the cell at x
+        v = dolfin_element.evaluate_basis_all(x,xvert,cell_id)
+        jj = np.arange(sdim*k,sdim*(k+1))
+        rows[jj] = k
+        # Find the dofs for the cell
+        cols[jj] = dofmap.cell_dofs(cell_id)
+        vals[jj] = v
+
+    ij = np.concatenate((np.array([rows]), np.array([cols])),axis=0)
+    M = sps.csr_matrix((vals, ij), shape=(nx,V.dim()))
+    return M
 #----------------------------------------------------------------------
 #----------------------------------------------------------------------
 # end of FiniteElementBasis class

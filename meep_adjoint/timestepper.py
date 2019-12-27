@@ -129,7 +129,9 @@ class TimeStepper(object):
             self.dfdEps = np.zeros(self.design_cell.grid.shape)
             for n in [ n for (n,c) in enumerate(self.design_cell.components) if c in E_CPTS]:
                 self.dfdEps += np.real( EH_fwd[n]*EH_adj[n] )
-            retvals = self.basis.project(self.dfdEps, grid=self.design_cell.grid, differential=True)
+            vol = 1 / self.sim.resolution ** 2
+            self.dfdEps = 2 * vol * self.dfdEps
+            retvals = self.basis.deps_dp(self.dfdEps, self.design_cell.grid)
         return retvals
 
 
@@ -180,7 +182,6 @@ class TimeStepper(object):
         #                        + termsty('{:5.1f} -> t -> {:5.1f}'.format(mta,mtb),'3'))
         #mt0, wt0 = mta, time.time()
         #wtdb, wtcpu, dt = wt0, wt0, (mtb-mta)/100.0
-
         self.sim.run(until_after_sources=0)
         vals = self.__update__(job)
 
@@ -262,11 +263,10 @@ class TimeStepper(object):
         ######################################################################
         envelope = self.fwd_sources[0].src
         freq     = envelope.frequency
-        fwidth   = envelope.width
         omega    = 2.0*np.pi*freq
-        factor   = -1/(2.0*freq)#2*1j*omega
-        #if callable(getattr(envelope, "fourier_transform", None)):
-        #    factor /= envelope.fourier_transform(freq)
+        factor   = 2.0j*omega
+        if callable(getattr(envelope, "fourier_transform", None)):
+            factor /= envelope.fourier_transform(freq)
 
         ######################################################################
         # make a list of (qrule, qweight) pairs for all objective quantities
@@ -290,33 +290,39 @@ class TimeStepper(object):
             code, mode, cell = qrule.code, qrule.mode, self.dft_cells[qrule.ncell]
             EH = cell.get_eigenmode_slices(mode) if mode>0 else cell.get_EH_slices('forward')
             shape = [ len(tics) for tics in [cell.grid.xtics, cell.grid.ytics, cell.grid.ztics] ]
+
             if code in 'PM':
-                sign  =  1.0 if code=='P' else -1.0
-                '''signs = [ +1.0, -1.0, -1.0*sign, +1.0*sign ]'''
-                kpoint = 3
-                if cell.normal == mp.X:
-                    kpoint = sign*3*XHAT
-                elif cell.normal == mp.Y:
-                    kpoint = sign*3*YHAT
+                sign  =  -1.0 if code=='P' else 1.0
+                if cell.normal == 0:
+                    kpoint = mp.Vector3(x=1)
+                elif cell.normal == 1:
+                    kpoint = mp.Vector3(y=1)
+                elif cell.normal == 2:
+                    kpoint = mp.Vector3(z=1)
                 else:
-                    kpoint = sign*3*ZHAT
-                sources += [mp.EigenModeSource(mp.GaussianSource(frequency=freq,width=fwidth),
-                                    direction=mp.NO_DIRECTION,
-                                    eig_band = mode,
-                                    eig_kpoint=kpoint,
-                                    size = cell.region.size,
-                                    amplitude=factor*qweight,
-                                    center=cell.region.center)]
+                    raise ValueError("Invalid monitor normal direction")
                 
-                '''sources += [ mp.Source(envelope, cell.components[3-nc],
+                sources += [mp.EigenModeSource(src=mp.GaussianSource(cell.fcen,fwidth=0.2*cell.fcen),
+                                center=cell.region.center,
+                                size=cell.region.size,
+                                direction=mp.NO_DIRECTION,
+                                eig_kpoint=sign*kpoint,
+                                amplitude=factor*qweight,
+                                #eig_band=bnum,
+                                #eig_parity=mp.EVEN_Y+mp.ODD_Z if rot_angle == 0 else mp.ODD_Z,
+                                eig_match_freq=True
+                                )]
+
+                '''sign  =  1.0 if code=='P' else -1.0
+                signs = [ +1.0, -1.0, +1.0*sign, -1.0*sign ]
+                sources += [ mp.Source(envelope, cell.components[3-nc],
                                        cell.region.center, cell.region.size,
                                        amplitude=signs[nc]*factor*qweight,
                                        amp_data=np.reshape(np.conj(EH[nc]),shape)
                                       ) for nc in range(len(cell.components))
                            ]'''
-            else:
-                raise TypeError("Only modal objective functions are currently supported.")
         return sources
+
 
 def stop_when_dft_converges():
     return

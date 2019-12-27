@@ -4,7 +4,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 mp.quiet(quietval=True)
-
+np.random.seed(10)
 #----------------------------------------
 # Simulation wavelength specs
 #----------------------------------------
@@ -83,7 +83,8 @@ basis = mpa.FiniteElementBasis(region=design_region,
 
 #basis = mpa.UniformBasis(region=design_region)
 
-beta_vector = basis.project(3.45**2)
+#beta_vector = basis.project(3.45**2)
+beta_vector = 5*np.random.rand(basis.dim)
 design_function = basis.parameterized_function(beta_vector)
 design_object = [mp.Block(center=design_region.center, size=design_region.size, epsilon_func = design_function.func())]
 
@@ -97,8 +98,34 @@ sim = mp.Simulation(cell_size=cell_size,
                     boundary_layers=pml_layers,
                     geometry=geometry,
                     sources=sources,
+                    eps_averaging=False,
                     resolution=resolution)
 
+'''sim.init_sim()
+vol = mp.Volume(center=design_region.center,size=design_region.size)
+my_eps = sim.get_array(vol=vol, component=mp.Dielectric)
+xwzy = sim.get_array_metadata(vol=vol)
+print(xwzy[0])
+#quit()
+my_grid = mpa.xyzw2grid(xwzy)
+pts = np.array([[v.x,v.y,v.z] for v in my_grid.points])
+
+M = mpa.make_interpolation_matrix(pts,basis.fs)
+
+eps_hat = M * beta_vector + 1
+
+plt.figure()
+plt.imshow(my_eps)
+
+plt.figure()
+plt.imshow(eps_hat.reshape(my_eps.shape))
+print(my_eps)
+print(my_eps - eps_hat.reshape(my_eps.shape))
+
+plt.figure()
+plt.imshow(my_eps - eps_hat.reshape(my_eps.shape))
+plt.show()
+quit()'''
 #----------------------------------------------------------------------
 #- objective regions
 #----------------------------------------------------------------------
@@ -153,7 +180,7 @@ f_adjoint, g_adjoint = opt_prob(b0)
 #----------------------------------------------------------------------
 # -- Solve discrete problem
 #----------------------------------------------------------------------
-db = 1e-8
+db = 1e-3
 g_discrete = 0*np.ones((n,))
 for k in range(n):
     b0_0 = np.ones((n,))
@@ -161,17 +188,10 @@ for k in range(n):
 
     b0_0[:] = b0
     b0_0[k] -= db
-    b0_1[:] = b0
-    b0_1[k] += db
-    print(b0_0)
-    print(b0_1)
-    temp, _ = opt_prob(b0_0)
-
+    temp, _ = opt_prob(b0_0,need_gradient=False)
     f0 = np.real(temp[0])
-    temp, _ = opt_prob(b0_1)
 
-    f1 = np.real(temp[0])
-    g_discrete[k] = (f1 - f0) / (2*db)
+    g_discrete[k] = (np.real(f_adjoint[0]) - f0) / (db)
 #----------------------------------------------------------------------
 # -- Compare
 #----------------------------------------------------------------------

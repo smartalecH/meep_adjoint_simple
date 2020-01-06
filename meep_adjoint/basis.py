@@ -17,9 +17,8 @@
 
        An instance of Basis exports methods implementing the following two operations:
 
-          (1) *Projection*: Given an arbitrary scalar function g(x) on V,
-              return the coefficients {g_n} of the element in the space
-              lying closest to g(x).
+          (1) *Gradient*: Given a vector representing the output of the basis, multiply it
+              by the gradient of the basis.
 
           (2) *Function instance*: Given a set of expansion coefficients {beta_n}
               return a callable func that inputs a spatial variable x and

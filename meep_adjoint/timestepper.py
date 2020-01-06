@@ -131,7 +131,7 @@ class TimeStepper(object):
                 self.dfdEps += np.real( EH_fwd[n]*EH_adj[n] )
             vol = 1 / self.sim.resolution ** 2
             self.dfdEps = 2 * vol * self.dfdEps
-            retvals = self.basis.deps_dp(self.dfdEps, self.design_cell.grid)
+            retvals = self.basis.gradient(self.dfdEps, self.design_cell.grid)
         return retvals
 
 
@@ -182,19 +182,26 @@ class TimeStepper(object):
         #                        + termsty('{:5.1f} -> t -> {:5.1f}'.format(mta,mtb),'3'))
         #mt0, wt0 = mta, time.time()
         #wtdb, wtcpu, dt = wt0, wt0, (mtb-mta)/100.0
-        self.sim.run(until_after_sources=0)
+        '''if job=='adjoint':
+            import matplotlib.pyplot as plt
+            self.sim.run(until=20)
+            self.sim.plot2D(fields=mp.Ez)
+            plt.show()
+            quit()'''
+        
+        self.sim.run(until=600)
         vals = self.__update__(job)
 
         # now continue timestepping with intermittent convergence checks until
         # we converge or timeout
-        stage, max_rel_delta = 0, 1.0e9
+        '''stage, max_rel_delta = 0, 1.0e9
         while max_rel_delta>reltol and self.sim.round_time() < max_time:
             mta, mtb, stage = mtb, min(mtb + check_interval, max_time), stage+1
             self.sim.run(until=mtb)
             last_vals, vals = vals, self.__update__(job)
             rel_delta = np.array( [rel_diff(v,lv) for v,lv in zip(vals,last_vals)] )
             max_rel_delta = np.amax(rel_delta)
-            print('   ** t={} MRD={} ** '.format(self.sim.round_time(), max_rel_delta))
+            print('   ** t={} MRD={} ** '.format(self.sim.round_time(), max_rel_delta))'''
 
         # for forward runs we save the converged DFT fields for later use
         if job=='forward':
@@ -263,8 +270,8 @@ class TimeStepper(object):
         ######################################################################
         envelope = self.fwd_sources[0].src
         freq     = envelope.frequency
-        omega    = 2.0*np.pi*freq
-        factor   = 2.0j*omega
+        omega    = freq
+        factor   = -1/(1j*omega)
         if callable(getattr(envelope, "fourier_transform", None)):
             factor /= envelope.fourier_transform(freq)
 

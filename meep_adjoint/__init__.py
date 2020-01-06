@@ -21,6 +21,8 @@ from .basis import (Basis, UniformBasis)
 
 from .finite_element_basis import (FiniteElementBasis, make_interpolation_matrix)
 
+from .bilinear_interpolation_basis import (BilinearInterpolationBasis, gen_interpolation_matrix)
+
 from .timestepper import TimeStepper
 
 from .optimization_problem import OptimizationProblem

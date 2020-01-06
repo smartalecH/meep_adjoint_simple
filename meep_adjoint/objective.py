@@ -159,7 +159,7 @@ class ObjectiveFunction(object):
             fexpr = sympy.sympify( _parse_absval_bars(fstr) )
         except:
             raise ValueError("failed to parse function {}".format(fstr))
-
+            
         # qnames = names of all objective quantities (i.e. all symbols
         #          identified by sympy as quantities on which fexpr depends)
         self.qnames = sorted(list(set([str(s) for s in fexpr.free_symbols] + extra_quantities ) ))
@@ -194,6 +194,7 @@ class ObjectiveFunction(object):
             df_drqn = sympy.diff(self.fexpr,self.riqsymbols[2*nq+0])
             df_diqn = sympy.diff(self.fexpr,self.riqsymbols[2*nq+1])
             self.dfexpr.append( df_drqn - sympy.I*df_diqn )
+        
 
     def __call__(self, DFTCells, nf=0):
         """Compute objective quantities and objective function.

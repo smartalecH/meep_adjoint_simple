@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 from scipy import sparse
 
 mp.quiet(quietval=True)
-load_from_file = True
 
 # -------------------------------- #
 # Bilinear Interpolation Basis class
@@ -174,8 +173,8 @@ def gen_interpolation_matrix(rho_x,rho_y,rho_x_interp,rho_y_interp):
 #----------------------------------------------------------------------
 # Main routine enters here
 #----------------------------------------------------------------------
-
-for resolution in [30]:
+load_from_file = True
+for resolution in [40]:
 
     np.random.seed(64)
 
@@ -191,7 +190,8 @@ for resolution in [30]:
     # Eigenmode source
     #----------------------------------------------------------------------
     fcen = 1/1.55
-    fwidth = 0.1 * fcen
+    width = 0.1
+    fwidth = width * fcen
     source_center  = [-1,0,0]
     source_size    = mp.Vector3(0,2,0)
     kpoint = mp.Vector3(1,0,0)
@@ -236,7 +236,7 @@ for resolution in [30]:
     mon_vol = mp.Volume(center=mp.Vector3(1,0,0),size=mp.Vector3(y=2))
     flux = sim.add_flux(fcen,0,1,mp.FluxRegion(center=mon_vol.center,size=mon_vol.size))
     #flux = sim.add_dft_fields([mp.Ex,mp.Ey,mp.Ez,mp.Hx,mp.Hy,mp.Hz],fcen,fcen,1,where=mon_vol)
-    design_flux = sim.add_dft_fields([mp.Ex,mp.Ey,mp.Ez],fcen,fcen,1,where=design_region,yee_grid=True)
+    design_flux = sim.add_dft_fields([mp.Ex,mp.Ey,mp.Ez],fcen,fcen,1,where=design_region,yee_grid=False)
 
     #----------------------------------------------------------------------
     #- run forward simulation
@@ -298,7 +298,13 @@ for resolution in [30]:
         # Backward coefficient
         cminus = - 0.5 * (C1 + C2) * cscale
 
-        vgrp = ob.vgrp[0]*(2)
+        vgrp = ob.vgrp[0]*2
+
+        ret = np.abs(np.sqrt(1/np.abs(vgrp)))
+
+        print(ret)
+        print(vgrp)
+        print(cscale)
         #print("cscale: ",cscale)
         #print("vgrp:  ",vgrp)
 
@@ -309,7 +315,7 @@ for resolution in [30]:
         #A = 1/4*np.conj(alpha) / Nm
 
         f = np.abs(coeff)**2
-        A = coeff
+        A = ob.alpha[0,0,0]
 
         
         '''mode_data = EigenmodeData.swigobj 
@@ -349,7 +355,7 @@ for resolution in [30]:
     #----------------------------------------------------------------------
     #- run adjoint simulation
     #----------------------------------------------------------------------
-    design_flux = sim.add_dft_fields([mp.Ex,mp.Ey,mp.Ez],fcen,fcen,1,where=design_region,yee_grid=True)
+    design_flux = sim.add_dft_fields([mp.Ex,mp.Ey,mp.Ez],fcen,fcen,1,where=design_region,yee_grid=False)
 
     sim.run(until=time)
 
@@ -364,10 +370,14 @@ for resolution in [30]:
         factor_env /= envelope.fourier_transform(freq_env)
     #scale = 1j * np.conj(alpha) / (np.sqrt(adjoint_power) * np.sqrt(forward_power))
 
+    print("forward power: ",forward_power)
     print("factor_env",factor_env)
     print("adjoint_power: ",1/np.sqrt(adjoint_power))
-    
-    scale = - np.conj(alpha) / (4 * fcen * 1j)  / resolution * factor_env * cscale
+    print("fcen: ",fcen)
+    print("alpha: ",np.abs(alpha.conj()))
+    print("cscale: ",cscale)
+    #quit()
+    scale = fcen * 1j * np.conj(alpha)  / resolution / resolution * cscale * 1/np.sqrt(adjoint_power) * 2 * 2 * np.pi
     #scale =  -alpha.conj() / (fcen) / 1j / np.sqrt(adjoint_power) / resolution ** 2
     a_Ex = sim.get_dft_array(design_flux,mp.Ex,0) #* scale 
     a_Ey = sim.get_dft_array(design_flux,mp.Ey,0) #* scale
@@ -378,8 +388,8 @@ for resolution in [30]:
     x = np.array(x)
     y = np.array(y)
 
-    x = (x + 0.5/resolution)[:-1]
-    y = (y + 0.5/resolution)[:-1]
+    #x = (x + 0.5/resolution)[:-1]
+    #y = (y + 0.5/resolution)[:-1]
 
 
     # Compute dF/deps integral
@@ -447,6 +457,9 @@ for resolution in [30]:
     print("adjoint method: {}".format(g_adjoint[idx]))
     print("discrete method: {}".format(g_discrete[idx]))
     print("ratio: {}".format(g_adjoint[idx]/g_discrete[idx]))
+
+    (m, b) = np.polyfit(g_discrete, g_adjoint, 1)
+    print("slope: {}".format(m))
 
     min = np.min(g_discrete)
     max = np.max(g_discrete)

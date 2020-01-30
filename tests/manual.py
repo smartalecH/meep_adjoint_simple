@@ -174,9 +174,10 @@ def gen_interpolation_matrix(rho_x,rho_y,rho_x_interp,rho_y_interp):
 # Main routine enters here
 #----------------------------------------------------------------------
 load_from_file = True
-for resolution in [40]:
+seed = 24
+for resolution in [10]:
 
-    np.random.seed(64)
+    np.random.seed(seed)
 
     Sx = 6
     Sy = 5
@@ -208,8 +209,8 @@ for resolution in [40]:
     #----------------------------------------------------------------------
     geometry = [mp.Block(center=mp.Vector3(), material=mp.Medium(index=3.45), size=mp.Vector3(mp.inf, 0.5, 0) )]
 
-    Nx = 4
-    Ny = 4
+    Nx = 3
+    Ny = 3
 
     design_size   = mp.Vector3(1, 1, 0)
     design_region = mp.Volume(center=mp.Vector3(), size=design_size)
@@ -234,8 +235,8 @@ for resolution in [40]:
     #----------------------------------------------------------------------
 
     mon_vol = mp.Volume(center=mp.Vector3(1,0,0),size=mp.Vector3(y=2))
-    flux = sim.add_flux(fcen,0,1,mp.FluxRegion(center=mon_vol.center,size=mon_vol.size))
-    #flux = sim.add_dft_fields([mp.Ex,mp.Ey,mp.Ez,mp.Hx,mp.Hy,mp.Hz],fcen,fcen,1,where=mon_vol)
+    em_monitor = sim.add_flux(fcen,0,1,mp.FluxRegion(center=mon_vol.center,size=mon_vol.size))
+    flux = sim.add_dft_fields([mp.Ex,mp.Ey,mp.Ez,mp.Hx,mp.Hy,mp.Hz],fcen,fcen,1,where=mon_vol)
     design_flux = sim.add_dft_fields([mp.Ex,mp.Ey,mp.Ez],fcen,fcen,1,where=design_region,yee_grid=False)
 
     #----------------------------------------------------------------------
@@ -249,9 +250,12 @@ for resolution in [40]:
     #----------------------------------------------------------------------
 
     # pull eigenmode data
-    def cost_function(sim,f_vol):
+    def cost_function(sim,f_vol,em_monitor):
         mode = 1
         EigenmodeData = sim.get_eigenmode(fcen, mp.X, f_vol.where, mode, mp.Vector3())
+
+        temp = np.array([0,0],dtype=np.complex128)
+
         x,y,z,w = sim.get_array_metadata(dft_cell=f_vol)
         x = np.array(x)
         y = np.array(y)
@@ -269,42 +273,55 @@ for resolution in [40]:
         mcomps = [Emy,Emz,Hmy,Hmz]
         sim_comps = [Ey,Ez,Hy,Hz]
 
-        for ic,c in enumerate([mp.Ey,mp.Ez,mp.Hy,mp.Ez]):
+        for ic,c in enumerate([mp.Ey,mp.Ez,mp.Hy,mp.Hz]):
             sim_comps[ic][:] = sim.get_dft_array(flux,c,0)
             for ix,px in enumerate(x):
                 for iy,py in enumerate(y):
                     mcomps[ic][ix,iy] = EigenmodeData.amplitude(mp.Vector3(px,py),c)
         
-        ob = sim.get_eigenmode_coefficients(f_vol,[1])
+        ob = sim.get_eigenmode_coefficients(em_monitor,[1])
         coeff = ob.alpha[0,0,0]
         #tr = np.array(mp.get_fluxes(f_vol))
 
+
         # Hm* cross E (c1 term)
         C1 = np.sum(np.conj(Hmy) * Ez - np.conj(Hmz) * Ey,axis=None) * (1/resolution)
+        print("Alec C1",C1)
         # Em* cross H (c2 term)
         C2 = np.sum(np.conj(Emy) * Hz - np.conj(Emz) * Hy,axis=None) * (1/resolution)
+        print("Alec C2",C2)
         # Hm* cross Em (first mode overlap)
         MO1 = -np.sum(np.conj(Hmy) * Emz - np.conj(Hmz) * Emy,axis=None) * (1/resolution)
         # Em* cross Hm (second mode overlap)
         MO2 = np.sum(np.conj(Emy) * Hmz - np.conj(Emz) * Hmy,axis=None) * (1/resolution)
         # Normalizer = vgrp * flux_volume(flux)
-        normfac = 0.5 * (MO1 + MO2)
+        normfac = (MO1 + MO2)/2
         # H* cross E (poynting flux)
         Pin = np.real(np.sum(np.conj(Ey) * Hz - np.conj(Ez) * Hy,axis=None) * (1/resolution))
         # Power flux normalizer
         cscale = np.abs(np.sqrt(1/np.abs(normfac)))
+        print("Alec cscale",cscale)
         # Forward coefficient
         cplus = 0.5 * (C2 - C1) * cscale
         # Backward coefficient
         cminus = - 0.5 * (C1 + C2) * cscale
 
-        vgrp = ob.vgrp[0]*2
+        vgrp = ob.vgrp[0]
+        print("normfac: ",normfac)
+        print("vgrp: ",np.sqrt(vgrp * np.abs(ob.alpha[0,0,0])**2))
 
         ret = np.abs(np.sqrt(1/np.abs(vgrp)))
 
-        print(ret)
-        print(vgrp)
-        print(cscale)
+        #flx = mp.get_fluxes(flux)
+
+        com = np.sqrt(vgrp * np.abs(ob.alpha[0,0,0])**2)
+        print(cscale*0.5 * (C2 - C1))
+        print(ob.alpha[0,0,0])
+        print(ob.alpha[0,0,0] / (cscale*0.5 * (C2 - C1)))
+        
+        #quit()
+        #quit()
+
         #print("cscale: ",cscale)
         #print("vgrp:  ",vgrp)
 
@@ -314,8 +331,8 @@ for resolution in [40]:
         #f = 1/8*np.abs(alpha) ** 2 / Nm
         #A = 1/4*np.conj(alpha) / Nm
 
-        f = np.abs(coeff)**2
-        A = ob.alpha[0,0,0]
+        f = np.abs(cplus)**2
+        A = cplus
 
         
         '''mode_data = EigenmodeData.swigobj 
@@ -326,9 +343,9 @@ for resolution in [40]:
         print("abs(alec)= {}, angle(alec)={}".format(np.abs(cminus),np.angle(cminus)))
         print("abs(meep)= {}, angle(meep)={}".format(np.abs(coeff),np.angle(coeff)))
         quit()'''
-        return f, A, cscale
+        return f, A, 0.5*cscale
 
-    f0, alpha, cscale = cost_function(sim,flux)
+    f0, alpha, cscale = cost_function(sim,flux,em_monitor)
 
 
     # record design cell fields
@@ -352,6 +369,7 @@ for resolution in [40]:
                         center=mon_vol.center)]
     sim.change_sources(sources)
     adjoint_power = sources[0].eig_power(fcen)
+
     #----------------------------------------------------------------------
     #- run adjoint simulation
     #----------------------------------------------------------------------
@@ -377,7 +395,10 @@ for resolution in [40]:
     print("alpha: ",np.abs(alpha.conj()))
     print("cscale: ",cscale)
     #quit()
-    scale = fcen * 1j * np.conj(alpha)  / resolution / resolution * cscale * 1/np.sqrt(adjoint_power) * 2 * 2 * np.pi
+    scale = fcen * 1j * np.conj(alpha)  / resolution * cscale * 1/np.sqrt(adjoint_power)* 2 / resolution * 4 * np.pi
+    print(np.conj(alpha))
+    print("scale", adjoint_power)
+    quit()
     #scale =  -alpha.conj() / (fcen) / 1j / np.sqrt(adjoint_power) / resolution ** 2
     a_Ex = sim.get_dft_array(design_flux,mp.Ex,0) #* scale 
     a_Ey = sim.get_dft_array(design_flux,mp.Ey,0) #* scale
@@ -393,7 +414,7 @@ for resolution in [40]:
 
 
     # Compute dF/deps integral
-    grad = np.real( (d_Ez * a_Ez) * scale)
+    grad = 2 * np.real( (d_Ez * a_Ez) * scale)
 
     # Compute dF/rho from dF/deps
     g_adjoint = basis.gradient(grad, x, y)
@@ -414,11 +435,11 @@ for resolution in [40]:
 
     db = 1e-4
     n = Nx*Ny
-
+    choose = n
 
     from os import path
-    if path.exists('sweep_{}.npz'.format(resolution)) and load_from_file:
-        data = np.load('sweep_{}.npz'.format(resolution))
+    if path.exists('sweep_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny)) and load_from_file:
+        data = np.load('sweep_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny))
         idx = data['idx']
         g_discrete = data['g_discrete']
         #g_adjoint = data['g_adjoint']
@@ -426,7 +447,7 @@ for resolution in [40]:
     else:
         g_discrete = 0*np.ones((n,))
 
-        idx = np.random.choice(n,16,replace=False)
+        idx = np.random.choice(n,choose,replace=False)
 
         for k in idx:
             
@@ -439,7 +460,7 @@ for resolution in [40]:
             design_function.set_coefficients(b0_0)
             flux = sim.add_flux(fcen,0,1,mp.FluxRegion(center=mon_vol.center,size=mon_vol.size))
             sim.run(until=time)
-            fm, _, _ = cost_function(sim,flux)
+            fm, _, _ = cost_function(sim,flux,em_monitor)
 
             b0_1[:] = beta_vector
             b0_1[k] += db
@@ -447,11 +468,11 @@ for resolution in [40]:
             design_function.set_coefficients(b0_1)
             flux = sim.add_flux(fcen,0,1,mp.FluxRegion(center=mon_vol.center,size=mon_vol.size))
             sim.run(until=time)
-            fp, _, _ = cost_function(sim,flux)
+            fp, _, _ = cost_function(sim,flux,em_monitor)
             
             g_discrete[k] = (fp - fm) / (2*db)
         
-        np.savez('sweep_{}.npz'.format(resolution),g_discrete=g_discrete,g_adjoint=g_adjoint,idx=idx)
+        
 
     print("Chosen indices: ",idx)
     print("adjoint method: {}".format(g_adjoint[idx]))
@@ -469,10 +490,12 @@ for resolution in [40]:
     plt.plot(g_discrete[idx],g_adjoint[idx],'o',label='Adjoint comparison')
     plt.xlabel('Finite Difference Gradient')
     plt.ylabel('Adjoint Gradient')
-    plt.title('Resolution: {}'.format(resolution))
+    plt.title('Resolution: {} Seed: {} Nx: {} Ny: {}'.format(resolution,seed,Nx,Ny))
     plt.legend()
     plt.grid(True)
 
-    plt.savefig('comparison_{}.png'.format(resolution))
+
+    np.savez('sweep_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny),g_discrete=g_discrete,g_adjoint=g_adjoint,idx=idx,m=m,b=b,resolution=resolution)
+    plt.savefig('comparison_{}_seed_{}_Nx_{}_Ny_{}.png'.format(resolution,seed,Nx,Ny))
 
 plt.show()

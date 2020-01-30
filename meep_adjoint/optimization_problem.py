@@ -5,7 +5,7 @@ import inspect
 
 import meep as mp
 
-from . import (DFTCell, ObjectiveFunction, TimeStepper, FiniteElementBasis, rescale_sources, E_CPTS)
+from . import (DFTCell, TimeStepper, FiniteElementBasis, rescale_sources, E_CPTS)
 
 
 ######################################################################

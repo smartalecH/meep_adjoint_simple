@@ -22,13 +22,10 @@ class BilinearInterpolationBasis(Basis):
         # Generate interpolation grid
         self.rho_x = np.linspace(region.center.x - region.size.x/2,region.center.x + region.size.x/2,Nx)
         self.rho_y = np.linspace(region.center.y - region.size.y/2,region.center.y + region.size.y/2,Ny)
-    def gradient(self,eps,grid):
+    def gradient(self,eps,xtics,ytics):
         # get array of grid points that correspond to epsilon vector
         eps = eps.reshape(eps.size,order='C')
-        A = gen_interpolation_matrix(self.rho_x,self.rho_y,grid.xtics,grid.ytics)
-        '''from matplotlib import pyplot as plt
-        plt.spy(A)
-        plt.show()'''
+        A = gen_interpolation_matrix(self.rho_x,self.rho_y,xtics,ytics)
         return (eps.T * A).T
 
     def parameterized_function(self, beta_vector):

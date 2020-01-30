@@ -9,7 +9,7 @@ import meep as mp
 import warnings
 from datetime import datetime as dt2
 
-from . import (ObjectiveFunction, Basis, E_CPTS, XHAT, YHAT, ZHAT)
+from . import (Basis, E_CPTS, XHAT, YHAT, ZHAT)
 
 class TimeStepper(object):
     """

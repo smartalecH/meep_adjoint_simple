@@ -27,7 +27,7 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
         self.nf=nf
         self.mode=mode
         self.time_src = time_src
-        self.forward = 1 if forward else 0
+        self.forward = 0 if forward else 1
         self.direction = None
         self.k0 = k0
         self.eval = None
@@ -37,44 +37,6 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
         self.monitor = self.sim.add_flux(self.fcen,self.df,self.nf,mp.FluxRegion(center=self.volume.center,size=self.volume.size))
         self.direction = self.monitor.normal_direction
         return self.monitor
-    
-    def _calc_vgrp(self):
-        EigenmodeData = self.sim.get_eigenmode(self.fcen, self.direction, self.volume, self.mode, mp.Vector3())
-        EH_TRANSVERSE    = [[mp.Ey, mp.Ez, mp.Hy, mp.Hz],
-                            [mp.Ez, mp.Ex, mp.Hz, mp.Hx],
-                            [mp.Ex, mp.Ey, mp.Hx, mp.Hy] ]
-        
-        x,y,z,w = self.sim.get_array_metadata(dft_cell=self.monitor)
-
-        Emy = np.zeros((len(x),len(y),len(z)),dtype=np.complex128)
-        Emz = np.zeros((len(x),len(y),len(z)),dtype=np.complex128)
-        Hmy = np.zeros((len(x),len(y),len(z)),dtype=np.complex128)
-        Hmz = np.zeros((len(x),len(y),len(z)),dtype=np.complex128)
-
-        mcomps = [Emy,Emz,Hmy,Hmz]
-        for ic,c in enumerate(EH_TRANSVERSE[self.direction]):
-            for ix,px in enumerate(x):
-                for iy,py in enumerate(y):
-                    for iz,pz in enumerate(z):
-                        mcomps[ic][ix,iy,iz] = EigenmodeData.amplitude(mp.Vector3(px,py,pz),c)
-        
-        # FIXME change for 3d resolution
-        MO1 = -np.sum(np.conj(Hmy) * Emz - np.conj(Hmz) * Emy,axis=None) * (1/self.sim.resolution)
-        MO2 = np.sum(np.conj(Emy) * Hmz - np.conj(Emz) * Hmy,axis=None) * (1/self.sim.resolution)
-        vgrp = (MO1 + MO2)/2
-        return vgrp
-    
-    def _calculate_scalars(self):
-        if self.eval is None:
-            raise RuntimeError("The eigenmode coefficients must be calculated before trying to scale the adjoint source.")
-        # FIXME implement cscale using actual vgrp
-        cscale = np.abs(np.sqrt(1/np.abs(self.vgrp)))
-        # FIXME resolution for 3d sims and planar monitors
-        # FIXME grab fcen from self.eval
-        # TODO single valued scaling -- it would be better to fit to a pade approximant and apodize in time domain
-        scale = 2 / self.sim.resolution * cscale * 1/np.sqrt(self.forward_power)* 2 / self.sim.resolution
-        
-        return scale
     
     def place_adjoint_source(self,dJ):
         '''
@@ -93,11 +55,12 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
         else:
             k0 = direction_scalar * self.k0
         
-        # get scaling factor
-        scale = self._calculate_scalars() * dJ * 2 * np.pi * 1j* self.time_src.frequency
-        print(scale)
-        print(dJ)
-        quit()
+        # get scaling factor 
+        # FIXME currently assumes evaluating frequency factor at center is good enough
+        # NOTE multiply j*2*pi*f after adjoint simulation since it's a simple scalar that is inherently freq dependent
+        da_dE = 0.5*(1 / self.sim.resolution * 1 / self.sim.resolution * self.cscale * 1/np.sqrt(self.forward_power))
+        scale = da_dE * dJ      
+
         # generate source
         self.source = mp.EigenModeSource(self.time_src,
                     eig_band = self.mode,
@@ -113,16 +76,20 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
         return self.source
 
     def __call__(self):
-        # record simulation's forward power for later scaling FIXME find better way to do this in case sources are complicated...
+        # record simulation's forward power for later scaling 
+        # FIXME find better way to do this in case sources are complicated...
         self.forward_power = self.sim.sources[0].eig_power(self.time_src.frequency)
 
         # record eigenmode coefficients for scaling
         ob = self.sim.get_eigenmode_coefficients(self.monitor,[self.mode])
-        self.eval = np.squeeze(ob.alpha[:,:,self.direction])
+        self.eval = np.squeeze(ob.alpha[:,:,self.forward])
 
-        # record all freqs of interest # FIXME allow for broadband objectives
+        # record all freqs of interest
+        # FIXME allow for broadband objectives
         self.freqs = mp.get_eigenmode_freqs(self.monitor)
 
-        # pull group velocity # FIXME use native get_eigenmode_coefficients once bug is fixed
-        self.vgrp = self._calc_vgrp()#np.squeeze(ob.vgrp)
+        # pull scaling factor 
+        # FIXME only record center frequency
+        self.cscale = np.squeeze(ob.cscale)
+
         return self.eval

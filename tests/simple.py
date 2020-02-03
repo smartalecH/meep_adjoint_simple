@@ -14,7 +14,7 @@ load_from_file = True
 seed = 24
 np.random.seed(seed)
 
-resolution = 10
+resolution = 50
 
 Sx = 6
 Sy = 5
@@ -81,73 +81,23 @@ def J(alpha):
     return npa.abs(alpha) ** 2
 
 #----------------------------------------------------------------------
-#- Forward run
+#- Define optimization problem
 #----------------------------------------------------------------------
 
-# record forward power for normalization
-forward_power = source[0].eig_power(fcen)
-
-# register adjoint monitors
-mon_list = []
-for m in ob_list:
-    mon_list.append(m.register_monitors())
-
-# register design region
-mon_list.append(sim.add_dft_fields([mp.Ex,mp.Ey,mp.Ez],fcen,fcen,1,where=design_region,yee_grid=False))
-
-# Run forward run
-sim.run(until=time)
-
-# record objective quantities
-results_list = []
-for m in ob_list:
-    results_list.append(m())
-
-# evaluate objective
-f0 = J(*results_list)
-
-# record fields in design region
-d_Ex = sim.get_dft_array(mon_list[-1],mp.Ex,0)
-d_Ey = sim.get_dft_array(mon_list[-1],mp.Ey,0)
-d_Ez = sim.get_dft_array(mon_list[-1],mp.Ez,0)
+opt = mpa.OptimizationProblem(
+    simulation = sim,
+    objective_function = J,
+    objective_arguments = ob_list,
+    design_function = design_function,
+    basis = basis,
+    fcen = fcen
+)
 
 #----------------------------------------------------------------------
-#- Adjoint run
+#- Get gradient
 #----------------------------------------------------------------------
 
-sim.reset_meep()
-
-adjoint_sources = []
-for mi, m in enumerate(ob_list):
-    print(results_list)
-    quit()
-    dJ = grad(J,mi)(*results_list)
-    adjoint_sources.append(m.place_adjoint_source(dJ))
-
-sim.change_sources(adjoint_sources)
-
-# update sources
-kpoint = mp.Vector3(-1,0,0)
-
-# reregsiter design flux
-mon_list[-1] = sim.add_dft_fields([mp.Ex,mp.Ey,mp.Ez],fcen,fcen,1,where=design_region,yee_grid=False)
-
-sim.run(until=time)
-
-a_Ex = sim.get_dft_array(mon_list[-1],mp.Ex,0) #* scale 
-a_Ey = sim.get_dft_array(mon_list[-1],mp.Ey,0) #* scale
-a_Ez = sim.get_dft_array(mon_list[-1],mp.Ez,0) #* scale
-
-scale = 2 * np.pi * fcen * 1j
-
-grad = 2 * np.real( (d_Ez * a_Ez))
-
-(x,y,z,w) = sim.get_array_metadata(dft_cell=mon_list[-1])
-
-x = np.array(x)
-y = np.array(y)
-
-g_adjoint = basis.gradient(grad, x, y)
+f0, g_adjoint = opt()
 
 #----------------------------------------------------------------------
 #- FD run

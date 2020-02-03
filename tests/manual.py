@@ -315,9 +315,7 @@ for resolution in [10]:
         #flx = mp.get_fluxes(flux)
 
         com = np.sqrt(vgrp * np.abs(ob.alpha[0,0,0])**2)
-        print(cscale*0.5 * (C2 - C1))
-        print(ob.alpha[0,0,0])
-        print(ob.alpha[0,0,0] / (cscale*0.5 * (C2 - C1)))
+        
         
         #quit()
         #quit()
@@ -331,8 +329,8 @@ for resolution in [10]:
         #f = 1/8*np.abs(alpha) ** 2 / Nm
         #A = 1/4*np.conj(alpha) / Nm
 
-        f = np.abs(cplus)**2
-        A = cplus
+        f = np.abs(ob.alpha[0,0,0])**2
+        A = ob.alpha[0,0,0]
 
         
         '''mode_data = EigenmodeData.swigobj 
@@ -343,6 +341,12 @@ for resolution in [10]:
         print("abs(alec)= {}, angle(alec)={}".format(np.abs(cminus),np.angle(cminus)))
         print("abs(meep)= {}, angle(meep)={}".format(np.abs(coeff),np.angle(coeff)))
         quit()'''
+
+        print("J: ",f,A)
+        print("scaling: ",ob.alpha[0,0,0])
+        sim.plot2D()
+        plt.show()
+        quit()
         return f, A, 0.5*cscale
 
     f0, alpha, cscale = cost_function(sim,flux,em_monitor)

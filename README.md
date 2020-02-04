@@ -20,12 +20,12 @@ in the project's home directory.
 
 ## Planned features and tasks
 
-- [ ] Validate method with finite difference approximation
+- [x] Validate method with finite difference approximation
 - [ ] Enable 3D implementation
 - [ ] Enable broadband objective functions
 - [ ] Demonstrate nonlinear filtering algorithms of design variables
 - [ ] Demonstrate constraints
-- [ ] Streamline objective function parsing
+- [x] Streamline objective function parsing
 
 ## Original Documentation
 

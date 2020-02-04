@@ -18,6 +18,7 @@ class BilinearInterpolationBasis(Basis):
         self.Nx = Nx
         self.Ny = Ny
         self.dim = 2
+        self.num_design_params = self.Nx*self.Ny
 
         # Generate interpolation grid
         self.rho_x = np.linspace(region.center.x - region.size.x/2,region.center.x + region.size.x/2,Nx)

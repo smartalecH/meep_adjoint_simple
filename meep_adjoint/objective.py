@@ -28,14 +28,14 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
         self.mode=mode
         self.time_src = time_src
         self.forward = 0 if forward else 1
-        self.direction = None
+        self.normal_direction = None
         self.k0 = k0
         self.eval = None
         return
     
     def register_monitors(self):
         self.monitor = self.sim.add_flux(self.fcen,self.df,self.nf,mp.FluxRegion(center=self.volume.center,size=self.volume.size))
-        self.direction = self.monitor.normal_direction
+        self.normal_direction = self.monitor.normal_direction
         return self.monitor
     
     def place_adjoint_source(self,dJ):
@@ -44,34 +44,32 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
         '''
         
         # determine starting point for reverse mode eigenmode source
-        direction_scalar = 1 if self.direction else -1
+        direction_scalar = 1 if self.forward else -1
         if self.k0 is None:
-            if self.direction == 0:
+            if self.normal_direction == 0:
                 k0 = direction_scalar * mp.Vector3(x=1)
-            elif self.direction == 1:
+            elif self.normal_direction == 1:
                 k0 = direction_scalar * mp.Vector3(y=1)
-            elif self.direction == 2:
+            elif self.normal_direction == 2:
                 k0 == direction_scalar * mp.Vector3(z=1)
         else:
             k0 = direction_scalar * self.k0
         
-        # get scaling factor 
-        # FIXME currently assumes evaluating frequency factor at center is good enough
-        # NOTE multiply j*2*pi*f after adjoint simulation since it's a simple scalar that is inherently freq dependent
-        da_dE = 0.5*(1 / self.sim.resolution * 1 / self.sim.resolution * self.cscale * 1/np.sqrt(self.forward_power))
-        scale = da_dE * dJ      
-
         # generate source
         self.source = mp.EigenModeSource(self.time_src,
                     eig_band = self.mode,
                     direction=mp.NO_DIRECTION,
                     eig_kpoint=k0,
                     size = self.volume.size,
-                    amplitude = scale,
                     center=self.volume.center)
         
-        # record adjoint power at each freq
+        # get scaling factor 
+        # FIXME currently assumes evaluating frequency factor at center is good enough
+        # NOTE multiply j*2*pi*f after adjoint simulation since it's a simple scalar that is inherently freq dependent
+        da_dE = 0.5*(1/self.sim.resolution * 1/self.sim.resolution * self.cscale)
         self.adjoint_power = self.source.eig_power(self.time_src.frequency)
+        scale = da_dE * dJ * 1/np.sqrt(self.adjoint_power)
+        self.source.amplitude=scale
         
         return self.source
 

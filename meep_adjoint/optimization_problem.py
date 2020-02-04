@@ -46,6 +46,22 @@ class OptimizationProblem(object):
         # record convergence time
         # FIXME add dynamic method that checks for convergence
         self.time=time
+        self.num_design_params = self.basis.num_design_params
+        
+        # store sources for finite difference estimations
+        self.forward_sources = self.sim.sources     
+
+        # --------------------------------------------------------- #
+        # Prepare forward run
+        # --------------------------------------------------------- #
+        # register user specified monitors
+        # FIXME do we actually need to store the monitors?
+        self.mon_list = []
+        for m in self.objective_arguments:
+            self.mon_list.append(m.register_monitors())
+
+        # register design region
+        self.mon_list.append(self.sim.add_dft_fields([mp.Ex,mp.Ey,mp.Ez],self.fcen,self.fcen,1,where=self.design_region,yee_grid=False))
 
     def __call__(self, beta_vector=None, need_value=True, need_gradient=True):
         """Evaluate value and/or gradient of objective function.
@@ -88,18 +104,6 @@ class OptimizationProblem(object):
         return _f, _df
 
     def forward_run(self):
-
-        # --------------------------------------------------------- #
-        # Prepare forward run
-        # --------------------------------------------------------- #
-        # register user specified monitors
-        # FIXME do we actually need to store the monitors?
-        self.mon_list = []
-        for m in self.objective_arguments:
-            self.mon_list.append(m.register_monitors())
-
-        # register design region
-        self.mon_list.append(self.sim.add_dft_fields([mp.Ex,mp.Ey,mp.Ez],self.fcen,self.fcen,1,where=self.design_region,yee_grid=False))
 
         # --------------------------------------------------------- #
         # Forward run
@@ -174,7 +178,80 @@ class OptimizationProblem(object):
         self.gradient = self.basis.gradient(grad, x, y)
 
         # FIXME record run stats for checking later
+    
+    def calculate_fd_gradient(self,num_gradients=1,db=1e-4):
+        '''
+        Estimate central difference gradients.
+        '''
 
+        if num_gradients > self.num_design_params:
+            raise ValueError("The requested number of gradients must be less than or equal to the total number of design parameters.")
+
+        # cleanup simulation object
+        self.sim.reset_meep()
+        self.sim.change_sources(self.forward_sources)
+
+        # preallocate result vector
+        fd_gradient = 0*np.ones((self.num_design_params,))
+
+        # randomly choose indices to loop estimate
+        fd_gradient_idx = np.random.choice(self.num_design_params,num_gradients,replace=False)
+
+        for k in fd_gradient_idx:
+            
+            b0 = np.ones((self.num_design_params,))
+            b0[:] = self.design_function.beta
+            # -------------------------------------------- #
+            # left function evaluation
+            # -------------------------------------------- #
+            self.sim.reset_meep()
+            
+            # assign new design vector
+            b0[k] -= db
+            self.design_function.set_coefficients(b0)
+            
+            # initialize design monitors
+            for m in self.objective_arguments:
+                m.register_monitors()
+            
+            # run simulation FIXME make dyanmic time
+            self.sim.run(until=self.time)
+            
+            # record final objective function value
+            results_list = []
+            for m in self.objective_arguments:
+                results_list.append(m())
+            fm = self.objective_function(*results_list)
+
+            # -------------------------------------------- #
+            # right function evaluation
+            # -------------------------------------------- #
+            self.sim.reset_meep()
+
+            # assign new design vector
+            b0[k] += 2*db # central difference rule...
+            self.design_function.set_coefficients(b0)
+
+            # initialize design monitors
+            for m in self.objective_arguments:
+                m.register_monitors()
+            
+            # run simulation FIXME make dyanmic time
+            self.sim.run(until=self.time)
+            
+            # record final objective function value
+            results_list = []
+            for m in self.objective_arguments:
+                results_list.append(m())
+            fp = self.objective_function(*results_list)
+
+            # -------------------------------------------- #
+            # estimate derivative
+            # -------------------------------------------- #
+            fd_gradient[k] = (fp - fm) / (2*db)
+        
+        return fd_gradient, fd_gradient_idx
+    
     def update_design(self, beta_vector):
         """Update the design permittivity function.
         """
@@ -194,7 +271,7 @@ class OptimizationProblem(object):
 
         fig = plt.figure(num=id) if id else None
 
-        self.stepper.sim.plot2D()
+        self.sim.plot2D()
         if mesh is not None and pmesh:
             plot_mesh(mesh)
 

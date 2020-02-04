@@ -16,7 +16,7 @@ load_from_file = False
 seed = 24
 np.random.seed(seed)
 
-resolution = 10
+resolution = 20
 
 Sx = 6
 Sy = 5
@@ -33,7 +33,7 @@ time = 1200
 fcen = 1/1.55
 width = 0.1
 fwidth = width * fcen
-source_center  = [-1,0,0]
+source_center  = [-1.5,0,0]
 source_size    = mp.Vector3(0,2,0)
 kpoint = mp.Vector3(1,0,0)
 src = mp.GaussianSource(frequency=fcen,fwidth=fwidth)
@@ -50,7 +50,7 @@ source = [mp.EigenModeSource(src,
 
 geometry = [
     mp.Block(center=mp.Vector3(x=-Sx/4), material=mp.Medium(index=3.45), size=mp.Vector3(Sx/2, 0.5, 0)), # horizontal waveguide
-    mp.Block(center=mp.Vector3(y=Sy/4), material=mp.Medium(index=3.45), size=mp.Vector3(0.5, Sy/2, 0))  # vertical waveguide
+    mp.Block(center=mp.Vector3(), material=mp.Medium(index=3.45), size=mp.Vector3(0.5, mp.inf, 0))  # vertical waveguide
 ]
 
 Nx = 5
@@ -77,12 +77,13 @@ sim = mp.Simulation(cell_size=cell_size,
 #- Objective quantities and objective function
 #----------------------------------------------------------------------
 
-EMC_vol = mp.Volume(center=mp.Vector3(0,1,0),size=mp.Vector3(x=2))
-TE0 = mpa.EigenmodeCoefficient(sim,EMC_vol,fcen,0,1,1,src)
-ob_list = [TE0]
+TE0 = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(x=-1),size=mp.Vector3(y=1.5)),fcen,0,1,1,src)
+TE_top = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(0,1,0),size=mp.Vector3(x=1.5)),fcen,0,1,1,src)
+TE_bottom = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(0,-1,0),size=mp.Vector3(x=1.5)),fcen,0,1,1,src)
+ob_list = [TE0,TE_top,TE_bottom]
 
-def J(alpha):
-    return npa.abs(alpha) ** 2
+def J(source,top,bottom):
+    return npa.abs(top/source) ** 2 + npa.abs(bottom/source) ** 2
 
 #----------------------------------------------------------------------
 #- Define optimization problem

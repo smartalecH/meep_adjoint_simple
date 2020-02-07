@@ -16,7 +16,7 @@ load_from_file = False
 seed = 24
 np.random.seed(seed)
 
-resolution = 20
+resolution = 10
 
 Sx = 6
 Sy = 5

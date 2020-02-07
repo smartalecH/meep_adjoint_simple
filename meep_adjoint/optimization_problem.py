@@ -31,6 +31,8 @@ class OptimizationProblem(object):
                 design_function,
                 basis,
                 fcen,
+                df=0,
+                nf=1,
                 time=1200
                  ):
 
@@ -43,6 +45,8 @@ class OptimizationProblem(object):
         self.design_region = self.basis.domain
         # FIXME proper way to add freqs
         self.fcen = fcen
+        self.df = df
+        self.nf = nf
         # record convergence time
         # FIXME add dynamic method that checks for convergence
         self.time=time

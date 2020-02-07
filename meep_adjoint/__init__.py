@@ -17,11 +17,11 @@ from .dft_cell import (XHAT, YHAT, ZHAT, E_CPTS, H_CPTS, EH_CPTS,
 
 from .objective import EigenmodeCoefficient
 
-from .basis import (Basis, UniformBasis)
+from .basis import (Basis)
 
 from .finite_element_basis import (FiniteElementBasis, make_interpolation_matrix)
 
-from .bilinear_interpolation_basis import (BilinearInterpolationBasis, gen_interpolation_matrix)
+from .bilinear_interpolation_basis import (BilinearInterpolationBasis)
 
 from .timestepper import TimeStepper
 

@@ -2,9 +2,10 @@ import meep as mp
 import meep_adjoint as mpa
 import autograd.numpy as npa
 import numpy as np
-from autograd import grad
+from autograd import grad, jacobian, elementwise_grad
 from matplotlib import pyplot as plt
 from os import path
+import autograd.scipy.signal.convolve as cv
 
 mp.quiet(quietval=True)
 load_from_file = False
@@ -53,17 +54,26 @@ geometry = [
     mp.Block(center=mp.Vector3(y=Sy/4), material=mp.Medium(index=3.45), size=mp.Vector3(0.5, Sy/2, 0))  # vertical waveguide
 ]
 
-Nx = 5
-Ny = 5
+Nx = 10
+Ny = 10
 
 design_size   = mp.Vector3(1, 1, 0)
 design_region = mp.Volume(center=mp.Vector3(), size=design_size)
-basis = mpa.BilinearInterpolationBasis(region=design_region,Nx=Nx,Ny=Ny)
+beta_vector = np.random.rand(Nx*Ny)
+basis = mpa.BilinearInterpolationBasis(volume=design_region,Nx=Nx,Ny=Ny,beta=beta_vector)
+def threshold(x):
+    return 0.5 * (npa.tanh((x-0.5) * 10000.) + 1)
+    return x
+def rho_to_eps(rho):
+    return 11.*rho + 1
+    return rho
+def design_function(r):
+    return rho_to_eps(threshold(basis(r)))
 
-beta_vector = 11*np.random.rand(Nx*Ny) + 1
+cv()
 
-design_function = basis.parameterized_function(beta_vector)
-design_object = [mp.Block(center=design_region.center, size=design_region.size, epsilon_func = design_function.func())]
+#design_function = basis.parameterized_function(beta_vector)
+design_object = [mp.Block(center=design_region.center, size=design_region.size, epsilon_func = design_function)]
 
 geometry += design_object
 
@@ -73,6 +83,9 @@ sim = mp.Simulation(cell_size=cell_size,
                     sources=source,
                     eps_averaging=False,
                     resolution=resolution)
+sim.plot2D()
+plt.show()
+quit()
 #----------------------------------------------------------------------
 #- Objective quantities and objective function
 #----------------------------------------------------------------------

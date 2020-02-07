@@ -3,6 +3,7 @@
 from abc import ABC, abstractmethod
 import numpy as np
 import meep as mp
+from autograd import elementwise_grad as egrad  # for functions that vectorize over inputs
 
 class ObjectiveQuantitiy(ABC):
     @abstractmethod
@@ -42,8 +43,11 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
         '''
         dJ ........ the user needs to pass the dJ/dMonitor evaluation
         '''
-        
-        # determine starting point for reverse mode eigenmode source
+        dJ = np.atleast_1d(dJ)
+        print(dJ)
+        quit()
+
+        # determine starting kpoint for reverse mode eigenmode source
         direction_scalar = 1 if self.forward else -1
         if self.k0 is None:
             if self.normal_direction == 0:
@@ -63,12 +67,18 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
                     size = self.volume.size,
                     center=self.volume.center)
         
-        # get scaling factor 
-        # FIXME currently assumes evaluating frequency factor at center is good enough
+        # -------------------------------------- #
+        # Get scaling factor 
+        # -------------------------------------- #
+
+        # FIXME currently assumes evaluating frequency factor at center is good enough. Future
+        # implementations should convolve the source with the time dependent response (or something similar)
         # NOTE multiply j*2*pi*f after adjoint simulation since it's a simple scalar that is inherently freq dependent
-        da_dE = 0.5*(1/self.sim.resolution * 1/self.sim.resolution * self.cscale)
-        self.adjoint_power = self.source.eig_power(self.time_src.frequency)
-        scale = da_dE * dJ * 1/np.sqrt(self.adjoint_power)
+        self.adjoint_power = self.source.eig_power(self.fcen)
+        da_dE = 0.5*(1/self.sim.resolution * 1/self.sim.resolution * self.cscale[self.fcen_idx])
+        scale = da_dE * dJ[self.fcen_idx] * 1/np.sqrt(self.adjoint_power)
+        
+        # scale the adjoint source appropriately
         self.source.amplitude=scale
         
         return self.source
@@ -76,7 +86,7 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
     def __call__(self):
         # record simulation's forward power for later scaling 
         # FIXME find better way to do this in case sources are complicated...
-        self.forward_power = self.sim.sources[0].eig_power(self.time_src.frequency)
+        self.forward_power = self.sim.sources[0].eig_power(self.fcen)
 
         # record eigenmode coefficients for scaling
         ob = self.sim.get_eigenmode_coefficients(self.monitor,[self.mode])
@@ -84,10 +94,13 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
 
         # record all freqs of interest
         # FIXME allow for broadband objectives
-        self.freqs = mp.get_eigenmode_freqs(self.monitor)
+        self.freqs = np.atleast_1d(mp.get_eigenmode_freqs(self.monitor))
+
+        # get f0 frequency index
+        self.fcen_idx = np.argmin(np.abs(self.freqs-self.fcen))
 
         # pull scaling factor 
         # FIXME only record center frequency
-        self.cscale = np.squeeze(ob.cscale)
+        self.cscale = ob.cscale
 
         return self.eval

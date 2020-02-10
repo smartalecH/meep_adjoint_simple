@@ -5,7 +5,6 @@ import numpy as np
 from autograd import grad, jacobian, elementwise_grad
 from matplotlib import pyplot as plt
 from os import path
-import autograd.scipy.signal.convolve as cv
 
 mp.quiet(quietval=True)
 load_from_file = False
@@ -49,33 +48,18 @@ source = [mp.EigenModeSource(src,
 #- geometric objects
 #----------------------------------------------------------------------
 
-geometry = [
-    mp.Block(center=mp.Vector3(x=-Sx/4), material=mp.Medium(index=3.45), size=mp.Vector3(Sx/2, 0.5, 0)), # horizontal waveguide
-    mp.Block(center=mp.Vector3(y=Sy/4), material=mp.Medium(index=3.45), size=mp.Vector3(0.5, Sy/2, 0))  # vertical waveguide
-]
-
 Nx = 10
 Ny = 10
 
-design_size   = mp.Vector3(1, 1, 0)
-design_region = mp.Volume(center=mp.Vector3(), size=design_size)
-beta_vector = np.random.rand(Nx*Ny)
-basis = mpa.BilinearInterpolationBasis(volume=design_region,Nx=Nx,Ny=Ny,beta=beta_vector)
-def threshold(x):
-    return 0.5 * (npa.tanh((x-0.5) * 10000.) + 1)
-    return x
-def rho_to_eps(rho):
-    return 11.*rho + 1
-    return rho
-def design_function(r):
-    return rho_to_eps(threshold(basis(r)))
+design_region = mp.Volume(center=mp.Vector3(), size=mp.Vector3(1, 1, 0))
+rho_vector = 11*np.random.rand(Nx*Ny) + 1
+basis = mpa.BilinearInterpolationBasis(volume=design_region,Nx=Nx,Ny=Ny,rho_vector=rho_vector)
 
-cv()
-
-#design_function = basis.parameterized_function(beta_vector)
-design_object = [mp.Block(center=design_region.center, size=design_region.size, epsilon_func = design_function)]
-
-geometry += design_object
+geometry = [
+    mp.Block(center=mp.Vector3(x=-Sx/4), material=mp.Medium(index=3.45), size=mp.Vector3(Sx/2, 0.5, 0)), # horizontal waveguide
+    mp.Block(center=mp.Vector3(y=Sy/4), material=mp.Medium(index=3.45), size=mp.Vector3(0.5, Sy/2, 0)),  # vertical waveguide
+    mp.Block(center=design_region.center, size=design_region.size, epsilon_func=basis.func()) # design region
+]
 
 sim = mp.Simulation(cell_size=cell_size,
                     boundary_layers=pml_layers,
@@ -83,15 +67,12 @@ sim = mp.Simulation(cell_size=cell_size,
                     sources=source,
                     eps_averaging=False,
                     resolution=resolution)
-sim.plot2D()
-plt.show()
-quit()
+
 #----------------------------------------------------------------------
 #- Objective quantities and objective function
 #----------------------------------------------------------------------
 
-EMC_vol = mp.Volume(center=mp.Vector3(0,1,0),size=mp.Vector3(x=2))
-TE0 = mpa.EigenmodeCoefficient(sim,EMC_vol,fcen,0,1,1,src)
+TE0 = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(0,1,0),size=mp.Vector3(x=2)),fcen,0,1,1,src)
 ob_list = [TE0]
 
 def J(alpha):
@@ -105,7 +86,6 @@ opt = mpa.OptimizationProblem(
     simulation = sim,
     objective_function = J,
     objective_arguments = ob_list,
-    design_function = design_function,
     basis = basis,
     fcen = fcen
 )

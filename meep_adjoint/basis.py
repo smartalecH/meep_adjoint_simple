@@ -1,115 +1,214 @@
-"""Definition of the Basis abstract base class.
-
-    A Basis is a finite-dimensional space of scalar functions defined on
-    a finite spatial region (the *domain*).
-
-    **Instance Data**
-
-    An instance of Basis is defined by the following data:
-        (1) a domain V,
-        (2) a set of D scalar basis functions {b_n(x)}, n=0,1,...,D-1, defined in V.
-
-    Once item (2) is specified, individual elements f(x) in the space f(x) are
-    identified by a D-dimensional vector of expansion coefficients
-    {\beta_n} according to f(x) = \sum \beta_n b_n(x).
-
-    **Exported Methods**
-
-       An instance of Basis exports methods implementing the following two operations:
-
-          (1) *Gradient*: Given a vector representing the output of the basis, multiply it
-              by the gradient of the basis.
-
-          (2) *Function instance*: Given a set of expansion coefficients {beta_n}
-              return a callable func that inputs a spatial variable x and
-              outputs func(x) = \sum beta_n b_n(x).
-"""
-
-from numbers import Number
-import sys
-from sympy import lambdify, Symbol
-import re
 import numpy as np
 import meep as mp
-
-from . import Subregion
-
-class GridFunc(object):
-    """Given a grid of spatial points {x_n} and a scalar function of a
-       single spatial variable f(x) (whose specification may take any
-       of several possible forms), return a scalar function of a
-       single integer GridFunc(n) defined by GridFunc(n) == f(x_n).
-
-    Arguments
-    ---------
-        f: function-like
-           specification of function f(x)
-
-        grid: array-like
-           grid of points {x_n} for integers n=0,1,...,
-
-    Returns
-    -------
-        GridFunc (callable) satisfying GridFunc(n)==f(x_n).
-    """
-
-    def __init__(self,f,grid):
-        self.p=grid.points
-        self.fm=self.fv=self.ff=None
-        if isinstance(f,np.ndarray) and f.shape==grid.shape:
-            self.fm = f.flatten()
-        elif isinstance(f,Number):
-            self.fv = f
-        elif callable(f):
-            self.ff = lambda n: f(self.p[n])
-        elif isinstance(f,str):
-            ffunc=lambdify( [Symbol(v) for v in 'xyz'],f)
-            self.ff = lambda n:ffunc(self.p[n][0],self.p[n][1],self.p[n][2])
-        else:
-            raise ValueError("GridFunc: failed to construct function")
-
-    def __call__(self, n):
-        return self.fm[n] if self.fm is not None else self.fv if self.fv is not None else self.ff(n)
-
-
-######################################################################
+from autograd import numpy as npa
+from scipy import sparse
+from autograd import grad, jacobian, vector_jacobian_product
 #invoke python's 'abstract base class' formalism in a version-agnostic way
-######################################################################
 from abc import ABCMeta, abstractmethod
 ABC = ABCMeta('ABC', (object,), {'__slots__': ()}) # compatible with Python 2 and 3
 
-
-#----------------------------------------------------------------------
 #----------------------------------------------------------------------
 # Basis is the abstract base class from which classes describing specific
 # basis sets should inherit.
-#----------------------------------------------------------------------
 #----------------------------------------------------------------------
 class Basis(ABC):
     """
     """
 
-    def __init__(self, dim, region=None, size=None, center=mp.Vector3(), offset=0.0):
-        self.dim, self.offset = dim, offset
-        self.region = region if region else Subregion(center=center,size=size)
+    def __init__(self, rho_vector, volume=None, size=None, center=mp.Vector3(), filter=None, material_mapping=None):
+        self.volume = volume if volume else mp.Volume(center=center,size=size)
+        self.filter = filter
+        self.rho_vector = rho_vector
+        self.rho_prime_vector = rho_vector if self.filter is None else self.filter(rho_vector)
 
-    @property
-    def dimension(self):
-        return self.dim
+        #TODO implment material_mapping
+        self.material_mapping=material_mapping
+    
+    def gradient(self,dj_deps,x,y,z):
+        '''
+        From the permittivity sensitivity (dJ/deps), calculate the gradient with respect to the user's actual design parameters.
 
-    @property
-    def domain(self):
-        return self.region
+        Parameters
+        ----------
+        dj_deps : array_like
+            `dj_deps` represents the permittivity sensitivity (dJ/deps).
+        x : array_like
+            `x` represents the x-coordinates of each permittivity sensitivity (dJ/deps).
+        y : array_like
+            `y` represents the y-coordinates of each permittivity sensitivity (dJ/deps).
+        z : array_like
+            `z` represents the z-coordinates of each permittivity sensitivity (dJ/deps).
+        Returns
+        -------
+        dj_drho : array_like instance
+            The senistivity with respect to the user's design variables.
+        Examples
+        --------
+        '''
 
-    @property
-    def names(self):
-        return [ 'b{}'.format(n) for n in range(self.dim) ]
+        # TODO: Chain rule for the material_mapping
 
-    ######################################################################
-    # get full vector of basis-function values at a single evaluation point
-    #  (pure virtual method, must be overriden by subclasses)
-    ######################################################################
+        # Chain rule for the basis interpolator
+        dj_deps = dj_deps.reshape(dj_deps.size,order='C')
+        dj_dp = dj_deps * self.get_basis_jacobian(x,y,z)
+
+        # Chain rule for the filtering functions
+        dj_drho = np.matmul(jacobian(self.filter)(dj_dp), dj_dp)
+        
+        return dj_drho
+    
+    def func(self):
+        def _f(p): 
+            return self(p)
+        return _f
+
     @abstractmethod
-    def get_bvector(self, p):
-        raise NotImplementedError("derived class must implement get_bvector()")
+    def get_basis_jacobian(self):
+        raise NotImplementedError("derived class must implement __call__() method")
+    
+    @abstractmethod
+    def __call__(self, p=[0.0,0.0]):
+        raise NotImplementedError("derived class must implement __call__() method")
 
+    def set_rho_vector(self, rho_vector):
+        self.rho_vector = rho_vector
+        self.rho_prime_vector = rho_vector if self.filter is None else self.filter(rho_vector)
+
+# -------------------------------- #
+# Bilinear Interpolation Basis class
+# -------------------------------- #
+
+class BilinearInterpolationBasis(Basis):
+    ''' 
+    Simple bilinear interpolation basis set.
+    '''
+
+    def __init__(self,Nx,Ny,**kwargs):
+        ''' 
+        
+        '''
+        self.Nx = Nx
+        self.Ny = Ny
+        # FIXME allow for 3d geometries using 2d bilinear interpolation
+        self.dim = 2
+        self.num_design_params = self.Nx*self.Ny
+
+        super(BilinearInterpolationBasis, self).__init__(**kwargs)
+
+        # Generate interpolation grid
+        self.rho_x = np.linspace(self.volume.center.x - self.volume.size.x/2,self.volume.center.x + self.volume.size.x/2,Nx)
+        self.rho_y = np.linspace(self.volume.center.y - self.volume.size.y/2,self.volume.center.y + self.volume.size.y/2,Ny)
+    
+    def __call__(self, p):
+        weights, interp_idx = self.get_bilinear_row(p.x,p.y,self.rho_x,self.rho_y)
+        return np.dot( self.rho_prime_vector[interp_idx], weights )                  
+
+    def get_basis_jacobian(self,x,y,z):
+        # get array of grid points that correspond to epsilon vector
+        #dj_deps = dj_deps.reshape(dj_deps.size,order='C')
+        A = self.gen_interpolation_matrix(self.rho_x,self.rho_y,x,y)
+        #return (eps.T * A).T
+        return A
+    
+    def get_bilinear_coefficients(self,x,x1,x2,y,y1,y2):
+        '''
+        Calculates the bilinear interpolation coefficients for a single point at (x,y).
+        Assumes that the user already knows the four closest points and provides the corresponding
+        (x1,x2) and(y1,y2) coordinates.
+        '''
+        b11 = ((x - x2)*(y - y2))/((x1 - x2)*(y1 - y2))
+        b12 = -((x - x2)*(y - y1))/((x1 - x2)*(y1 - y2))
+        b21 = -((x - x1)*(y - y2))/((x1 - x2)*(y1 - y2))
+        b22 = ((x - x1)*(y - y1))/((x1 - x2)*(y1 - y2))
+        return [b11,b12,b21,b22]
+
+    def get_bilinear_row(self,rx,ry,rho_x,rho_y):
+        '''
+        Calculates a vector of bilinear interpolation weights that can be used
+        in an inner product with the neighboring function values, or placed
+        inside of an interpolation matrix.
+        '''
+
+        Nx = rho_x.size
+        Ny = rho_y.size
+
+        # binary search in x direction to get x1 and x2
+        xi2 = np.searchsorted(rho_x,rx,side='left')
+        if xi2 <= 0: # extrapolation (be careful!)
+            xi1 = 0
+            xi2 = 1
+        elif xi2 >= Nx-1: # extrapolation (be careful!)
+            xi1 = Nx-2
+            xi2 = Nx-1
+        else:
+            xi1 = xi2 - 1
+        
+        x1 = rho_x[xi1]
+        x2 = rho_x[xi2]
+
+        # binary search in y direction to get y1 and y2
+        yi2 = np.searchsorted(rho_y,ry,side='left')
+        if yi2 <= 0: # extrapolation (be careful!)
+            yi1 = 0
+            yi2 = 1
+        elif yi2 >= Ny-1: # extrapolation (be careful!)
+            yi1 = Ny-2
+            yi2 = Ny-1
+        else:
+            yi1 = yi2 - 1
+        
+        y1 = rho_y[yi1]
+        y2 = rho_y[yi2]
+        
+        # get weights
+        weights = self.get_bilinear_coefficients(rx,x1,x2,ry,y1,y2)
+        
+        # get location of nearest neigbor interpolation points
+        interp_idx = np.array([xi1*Nx+yi1,xi1*Nx+yi2,(xi2)*Nx+yi1,(xi2)*Nx+yi2],dtype=np.int64)
+
+        return weights, interp_idx
+
+
+    def gen_interpolation_matrix(self,rho_x,rho_y,rho_x_interp,rho_y_interp):
+        '''
+        Generates a bilinear interpolation matrix.
+        
+        Arguments:
+        rho_x ................ [N,] numpy array - original x array mapping to povided data
+        rho_y ................ [N,] numpy array - original y array mapping to povided data
+        rho_x_interp ......... [N,] numpy array - new x array mapping to desired interpolated data
+        rho_y_interp ......... [N,] numpy array - new y array mapping to desired interpolated data
+
+        Returns:
+        A .................... [N,M] sparse matrix - interpolation matrix
+        '''
+
+        Nx = rho_x.size
+        Ny = rho_y.size
+        Nx_interp = np.array(rho_x_interp).size
+        Ny_interp = np.array(rho_y_interp).size
+
+        input_dimension = Nx * Ny
+        output_dimension = Nx_interp * Ny_interp
+
+        interp_weights = np.zeros(4*output_dimension) 
+        row_ind = np.zeros(4*output_dimension,dtype=np.int64) 
+        col_ind = np.zeros(4*output_dimension,dtype=np.int64)
+
+        ri = 0
+        for rx in rho_x_interp:
+            for ry in rho_y_interp:
+                # get weights
+                weights, interp_idx = self.get_bilinear_row(rx,ry,rho_x,rho_y)
+
+                # populate sparse matrix vectors
+                interp_weights[4*ri:4*(ri+1)] = weights
+                row_ind[4*ri:4*(ri+1)] = np.array([ri,ri,ri,ri],dtype=np.int64)
+                col_ind[4*ri:4*(ri+1)] = interp_idx
+
+                ri += 1
+        
+        # From matrix vectors, populate the sparse matrix
+        A = sparse.coo_matrix((interp_weights, (row_ind, col_ind)),shape=(output_dimension, input_dimension))
+        
+        return A

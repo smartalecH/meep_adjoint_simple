@@ -28,7 +28,6 @@ class OptimizationProblem(object):
                 simulation,
                 objective_function,
                 objective_arguments,
-                design_function,
                 basis,
                 fcen,
                 df=0,
@@ -39,10 +38,8 @@ class OptimizationProblem(object):
         self.sim = simulation
         self.objective_function = objective_function
         self.objective_arguments = objective_arguments
-        # FIXME better way to add design functions and basis functions... maybe with an object?
-        self.design_function = design_function
         self.basis = basis
-        self.design_region = self.basis.domain
+        self.design_region = self.basis.volume
         # FIXME proper way to add freqs
         self.fcen = fcen
         self.df = df
@@ -67,11 +64,11 @@ class OptimizationProblem(object):
         # register design region
         self.mon_list.append(self.sim.add_dft_fields([mp.Ex,mp.Ey,mp.Ez],self.fcen,self.fcen,1,where=self.design_region,yee_grid=False))
 
-    def __call__(self, beta_vector=None, need_value=True, need_gradient=True):
+    def __call__(self, rho_vector=None, need_value=True, need_gradient=True):
         """Evaluate value and/or gradient of objective function.
         """
-        if beta_vector is not None:
-            self.update_design(beta_vector=beta_vector)
+        if rho_vector is not None:
+            self.update_design(rho_vector=rho_vector)
 
         # Run forward run
         # FIXME check if we actually need a forward run
@@ -166,20 +163,22 @@ class OptimizationProblem(object):
         self.a_Ez = self.sim.get_dft_array(self.mon_list,mp.Ez,0)
 
     def calculate_gradient(self):
-        # FIXME allow for multiple frequencies
+        # TODO allow for multiple frequencies
         scale = 2 * np.pi * self.fcen * 1j
-        # FIXME allow for multiple polarizations/isotropies
+        # TODO allow for multiple polarizations/isotropies
         grad = 2 * np.real( (self.d_Ez * self.a_Ez * scale))
 
-        # FIXME allow for multiple design regions
+        # TODO allow for multiple design regions
         (x,y,z,w) = self.sim.get_array_metadata(dft_cell=self.mon_list)
 
-        # FIXME allow for multiple dimensions
+        # TODO allow for multiple dimensions
         x = np.array(x)
         y = np.array(y)
+        z = np.array(z)
 
-        # FIXME allow for different bases and filters
-        self.gradient = self.basis.gradient(grad, x, y)
+        self.gradient = self.basis.gradient(grad, x, y, z)
+
+        return self.gradient
 
         # FIXME record run stats for checking later
     
@@ -204,7 +203,7 @@ class OptimizationProblem(object):
         for k in fd_gradient_idx:
             
             b0 = np.ones((self.num_design_params,))
-            b0[:] = self.design_function.beta
+            b0[:] = self.basis.rho_vector
             # -------------------------------------------- #
             # left function evaluation
             # -------------------------------------------- #
@@ -212,7 +211,7 @@ class OptimizationProblem(object):
             
             # assign new design vector
             b0[k] -= db
-            self.design_function.set_coefficients(b0)
+            self.basis.set_rho_vector(b0)
             
             # initialize design monitors
             for m in self.objective_arguments:
@@ -234,7 +233,7 @@ class OptimizationProblem(object):
 
             # assign new design vector
             b0[k] += 2*db # central difference rule...
-            self.design_function.set_coefficients(b0)
+            self.basis.set_rho_vector(b0)
 
             # initialize design monitors
             for m in self.objective_arguments:
@@ -256,10 +255,10 @@ class OptimizationProblem(object):
         
         return fd_gradient, fd_gradient_idx
     
-    def update_design(self, beta_vector):
+    def update_design(self, rho_vector):
         """Update the design permittivity function.
         """
-        self.design_function.set_coefficients(beta_vector)
+        self.basis.set_rho_vector(rho_vector)
 
     def visualize(self, id=None, pmesh=False):
         """Produce a graphical visualization of the geometry and/or fields,

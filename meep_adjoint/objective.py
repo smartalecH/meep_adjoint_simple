@@ -44,8 +44,6 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
         dJ ........ the user needs to pass the dJ/dMonitor evaluation
         '''
         dJ = np.atleast_1d(dJ)
-        print(dJ)
-        quit()
 
         # determine starting kpoint for reverse mode eigenmode source
         direction_scalar = 1 if self.forward else -1

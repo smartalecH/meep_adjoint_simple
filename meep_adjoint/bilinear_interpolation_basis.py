@@ -47,7 +47,7 @@ class BilinearInterpolationBasis(Basis):
                     return self(p)
                 return _f
 
-    def gradient(self,p,eps):
+    def basis_gradient(self,p,eps):
         # get array of grid points that correspond to epsilon vector
         #dj_deps = dj_deps.reshape(dj_deps.size,order='C')
         x = [pi.x for pi in p]

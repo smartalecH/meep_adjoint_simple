@@ -23,7 +23,7 @@ in the project's home directory.
 - [x] Validate method with finite difference approximation
 - [ ] Enable 3D implementation
 - [ ] Enable broadband objective functions
-- [ ] Demonstrate nonlinear filtering algorithms of design variables
+- [x] Demonstrate nonlinear filtering algorithms of design variables
 - [ ] Demonstrate constraints
 - [x] Streamline objective function parsing
 

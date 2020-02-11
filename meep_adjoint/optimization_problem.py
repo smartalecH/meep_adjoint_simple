@@ -1,12 +1,9 @@
-"""OptimizationProblem is the top-level class exported by the meep.adjoint module.
-"""
 import meep as mp
 from autograd import grad
 import numpy as np
+from collections import namedtuple
 
-
-# OptimizationRegion?????
-
+Grid = namedtuple('Grid', ['x', 'y', 'z', 'w'])
 
 class OptimizationProblem(object):
     """Top-level class in the MEEP adjoint module.
@@ -40,12 +37,14 @@ class OptimizationProblem(object):
         self.objective_arguments = objective_arguments
         self.basis = basis
         self.design_region = self.basis.volume
-        # FIXME proper way to add freqs
+        
         self.fcen = fcen
         self.df = df
         self.nf = nf
-        # record convergence time
-        # FIXME add dynamic method that checks for convergence
+        self.freq_min = self.fcen - self.df/2
+        self.freq_max = self.fcen + self.df/2
+
+        # TODO add dynamic method that checks for convergence
         self.time=time
         self.num_design_params = self.basis.num_design_params
         
@@ -55,14 +54,16 @@ class OptimizationProblem(object):
         # --------------------------------------------------------- #
         # Prepare forward run
         # --------------------------------------------------------- #
+
         # register user specified monitors
-        # FIXME do we actually need to store the monitors?
-        self.mon_list = []
         for m in self.objective_arguments:
-            self.mon_list.append(m.register_monitors())
+            m.register_monitors(self.fcen,self.df,self.nf)
 
         # register design region
-        self.mon_list.append(self.sim.add_dft_fields([mp.Ex,mp.Ey,mp.Ez],self.fcen,self.fcen,1,where=self.design_region,yee_grid=False))
+        self.design_region_monitor = self.sim.add_dft_fields([mp.Ex,mp.Ey,mp.Ez],self.freq_min,self.freq_max,self.nf,where=self.design_region,yee_grid=False)
+
+        # store design region voxel parameters
+        self.design_grid = Grid(*self.sim.get_array_metadata(dft_cell=self.design_region_monitor))
 
     def __call__(self, rho_vector=None, need_value=True, need_gradient=True):
         """Evaluate value and/or gradient of objective function.
@@ -82,7 +83,6 @@ class OptimizationProblem(object):
         self.calculate_gradient()
 
         return self.f0, self.gradient
-
 
     def get_fdf_funcs(self):
         """construct callable functions for objective function value and gradient
@@ -106,14 +106,9 @@ class OptimizationProblem(object):
 
     def forward_run(self):
 
-        # --------------------------------------------------------- #
         # Forward run
-        # --------------------------------------------------------- #
         self.sim.run(until=self.time)
 
-        # --------------------------------------------------------- #
-        # Process and store results
-        # --------------------------------------------------------- #
         # record objective quantities from user specified monitors
         self.results_list = []
         for m in self.objective_arguments:
@@ -122,16 +117,15 @@ class OptimizationProblem(object):
         # evaluate objective
         self.f0 = self.objective_function(*self.results_list)
 
-        # record fields in design region (last entry of monitor list)
+        # Store forward fields in array (x,y,z,field_components,frequencies)
         # FIXME allow for multiple design regions
-        self.d_Ex = self.sim.get_dft_array(self.mon_list[-1],mp.Ex,0)
-        self.d_Ey = self.sim.get_dft_array(self.mon_list[-1],mp.Ey,0)
-        self.d_Ez = self.sim.get_dft_array(self.mon_list[-1],mp.Ez,0)
+        self.d_E = np.zeros((len(self.design_grid.x),len(self.design_grid.y),len(self.design_grid.z),3,self.nf),dtype=np.complex128)
+        for f in range(self.nf):
+            for ic, c in enumerate([mp.Ex,mp.Ey,mp.Ez]):
+                self.d_E[:,:,:,ic,f] = np.atleast_3d(self.sim.get_dft_array(self.design_region_monitor,c,f))
 
     def adjoint_run(self):
-        # --------------------------------------------------------- #
         # Prepare adjoint run
-        # --------------------------------------------------------- #
         self.sim.reset_meep()
 
         self.adjoint_sources = []
@@ -142,44 +136,37 @@ class OptimizationProblem(object):
         self.sim.change_sources(self.adjoint_sources)
 
         # reregsiter design flux
-        # FIXME clean up frquency input
         # FIXME cleanup design region input
-        # FIXME use yee grid directly 
-        self.mon_list = self.sim.add_dft_fields([mp.Ex,mp.Ey,mp.Ez],self.fcen,self.fcen,1,where=self.design_region,yee_grid=False)
+        # TODO use yee grid directly 
+        self.design_region_monitor = self.sim.add_dft_fields([mp.Ex,mp.Ey,mp.Ez],self.freq_min,self.freq_max,self.nf,where=self.design_region,yee_grid=False)
 
-        # --------------------------------------------------------- #
         # Adjoint run
-        # --------------------------------------------------------- #
-        #FIXME make more dynamic
+        # TODO make more dynamic
         self.sim.run(until=self.time)
 
-        # --------------------------------------------------------- #
-        # Process and store results
-        # --------------------------------------------------------- #
+        # Store adjoint fields in array (x,y,z,field_components,frequencies)
         # FIXME allow for multiple design regions
-        # FIXME allow for multiple frequencies
-        self.a_Ex = self.sim.get_dft_array(self.mon_list,mp.Ex,0)
-        self.a_Ey = self.sim.get_dft_array(self.mon_list,mp.Ey,0)
-        self.a_Ez = self.sim.get_dft_array(self.mon_list,mp.Ez,0)
+        self.a_E = np.zeros((len(self.design_grid.x),len(self.design_grid.y),len(self.design_grid.z),3,self.nf),dtype=np.complex128)
+        for f in range(self.nf):
+            for ic, c in enumerate([mp.Ex,mp.Ey,mp.Ez]):
+                self.a_E[:,:,:,ic,f] = np.atleast_3d(self.sim.get_dft_array(self.design_region_monitor,c,f))
+        
+        # store frequencies
+        self.frequencies = np.array(mp.get_flux_freqs(self.design_region_monitor))
 
     def calculate_gradient(self):
-        # TODO allow for multiple frequencies
-        scale = 2 * np.pi * self.fcen * 1j
-        # TODO allow for multiple polarizations/isotropies
-        grad = 2 * np.real( (self.d_Ez * self.a_Ez * scale))
 
-        # TODO allow for multiple design regions
-        (x,y,z,w) = self.sim.get_array_metadata(dft_cell=self.mon_list)
+        # calculate frequency scalar
+        adjoint_powers = 0
+        for oa in self.objective_arguments:
+            adjoint_powers += oa.adjoint_power
+        frequency_scalar = 1j*2*np.pi*self.frequencies * 1 / np.sqrt(adjoint_powers)
+        print(adjoint_powers)
 
-        # TODO allow for multiple dimensions
-        x = np.array(x)
-        y = np.array(y)
-        z = np.array(z)
+        #quit()
 
-        self.gradient = self.basis.gradient(grad, x, y, z)
-
-        return self.gradient
-
+        
+        self.gradient = self.basis.gradient(self.d_E, self.a_E, frequency_scalar, self.design_grid)
         # FIXME record run stats for checking later
     
     def calculate_fd_gradient(self,num_gradients=1,db=1e-4):
@@ -215,7 +202,7 @@ class OptimizationProblem(object):
             
             # initialize design monitors
             for m in self.objective_arguments:
-                m.register_monitors()
+                m.register_monitors(self.fcen,self.df,self.nf)
             
             # run simulation FIXME make dyanmic time
             self.sim.run(until=self.time)
@@ -237,7 +224,7 @@ class OptimizationProblem(object):
 
             # initialize design monitors
             for m in self.objective_arguments:
-                m.register_monitors()
+                m.register_monitors(self.fcen,self.df,self.nf)
             
             # run simulation FIXME make dyanmic time
             self.sim.run(until=self.time)

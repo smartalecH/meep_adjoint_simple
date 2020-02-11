@@ -2,12 +2,12 @@ import meep as mp
 import meep_adjoint as mpa
 import autograd.numpy as npa
 import numpy as np
-from autograd import grad, jacobian, elementwise_grad
+from autograd import grad
 from matplotlib import pyplot as plt
 from os import path
 
 mp.quiet(quietval=True)
-load_from_file = True
+load_from_file = False
 
 #----------------------------------------------------------------------
 # Initial setup
@@ -16,7 +16,7 @@ load_from_file = True
 seed = 24
 np.random.seed(seed)
 
-resolution = 20
+resolution = 10
 
 Sx = 6
 Sy = 5
@@ -33,7 +33,7 @@ time = 1200
 fcen = 1/1.55
 width = 0.1
 fwidth = width * fcen
-source_center  = [-1,0,0]
+source_center  = [-1.5,0,0]
 source_size    = mp.Vector3(0,2,0)
 kpoint = mp.Vector3(1,0,0)
 src = mp.GaussianSource(frequency=fcen,fwidth=fwidth)
@@ -57,7 +57,7 @@ basis = mpa.BilinearInterpolationBasis(volume=design_region,Nx=Nx,Ny=Ny,rho_vect
 
 geometry = [
     mp.Block(center=mp.Vector3(x=-Sx/4), material=mp.Medium(index=3.45), size=mp.Vector3(Sx/2, 0.5, 0)), # horizontal waveguide
-    mp.Block(center=mp.Vector3(y=Sy/4), material=mp.Medium(index=3.45), size=mp.Vector3(0.5, Sy/2, 0)),  # vertical waveguide
+    mp.Block(center=mp.Vector3(), material=mp.Medium(index=3.45), size=mp.Vector3(0.5, mp.inf, 0)),  # vertical waveguide
     mp.Block(center=design_region.center, size=design_region.size, epsilon_func=basis.func()) # design region
 ]
 
@@ -72,12 +72,18 @@ sim = mp.Simulation(cell_size=cell_size,
 #- Objective quantities and objective function
 #----------------------------------------------------------------------
 
-TE0 = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(0,1,0),size=mp.Vector3(x=2)),1)
-ob_list = [TE0]
+f0 = fcen
+num_freqs = 10
+df = 0.1*f0
+mode = 1
 
-def J(alpha):
-    return npa.sum(npa.abs(alpha) ** 2)
+TE0 = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(x=-1),size=mp.Vector3(y=1.5)),mode,src)
+TE_top = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(0,1,0),size=mp.Vector3(x=1.5)),mode,src)
+TE_bottom = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(0,-1,0),size=mp.Vector3(x=1.5)),mode,src)
+ob_list = [TE0,TE_top,TE_bottom]
 
+def J(source,top,bottom):
+    return npa.sum(npa.abs(top/source) ** 2 + npa.abs(bottom/source) ** 2)
 #----------------------------------------------------------------------
 #- Define optimization problem
 #----------------------------------------------------------------------
@@ -88,8 +94,8 @@ opt = mpa.OptimizationProblem(
     objective_arguments = ob_list,
     basis = basis,
     fcen = fcen,
-    df = 0.1*fcen,
-    nf = 10
+    nf = num_freqs,
+    df = df
 )
 
 #----------------------------------------------------------------------

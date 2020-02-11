@@ -48,24 +48,18 @@ source = [mp.EigenModeSource(src,
 #- geometric objects
 #----------------------------------------------------------------------
 
+Nx = 10
+Ny = 10
+
+design_region = mp.Volume(center=mp.Vector3(), size=mp.Vector3(1, 1, 0))
+rho_vector = 11*np.random.rand(Nx*Ny) + 1
+basis = mpa.BilinearInterpolationBasis(volume=design_region,Nx=Nx,Ny=Ny,rho_vector=rho_vector)
+
 geometry = [
     mp.Block(center=mp.Vector3(x=-Sx/4), material=mp.Medium(index=3.45), size=mp.Vector3(Sx/2, 0.5, 0)), # horizontal waveguide
-    mp.Block(center=mp.Vector3(), material=mp.Medium(index=3.45), size=mp.Vector3(0.5, mp.inf, 0))  # vertical waveguide
+    mp.Block(center=mp.Vector3(), material=mp.Medium(index=3.45), size=mp.Vector3(0.5, mp.inf, 0)),  # vertical waveguide
+    mp.Block(center=design_region.center, size=design_region.size, epsilon_func=basis.func()) # design region
 ]
-
-Nx = 5
-Ny = 5
-
-design_size   = mp.Vector3(1, 1, 0)
-design_region = mp.Volume(center=mp.Vector3(), size=design_size)
-basis = mpa.BilinearInterpolationBasis(region=design_region,Nx=Nx,Ny=Ny)
-
-beta_vector = 11*np.random.rand(Nx*Ny) + 1
-
-design_function = basis.parameterized_function(beta_vector)
-design_object = [mp.Block(center=design_region.center, size=design_region.size, epsilon_func = design_function.func())]
-
-geometry += design_object
 
 sim = mp.Simulation(cell_size=cell_size,
                     boundary_layers=pml_layers,
@@ -73,17 +67,20 @@ sim = mp.Simulation(cell_size=cell_size,
                     sources=source,
                     eps_averaging=False,
                     resolution=resolution)
+
 #----------------------------------------------------------------------
 #- Objective quantities and objective function
 #----------------------------------------------------------------------
 
-TE0 = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(x=-1),size=mp.Vector3(y=1.5)),fcen,0,1,1,src)
-TE_top = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(0,1,0),size=mp.Vector3(x=1.5)),fcen,0,1,1,src)
-TE_bottom = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(0,-1,0),size=mp.Vector3(x=1.5)),fcen,0,1,1,src)
+mode = 1
+
+TE0 = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(x=-1),size=mp.Vector3(y=1.5)),mode,src)
+TE_top = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(0,1,0),size=mp.Vector3(x=1.5)),mode,src)
+TE_bottom = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(0,-1,0),size=mp.Vector3(x=1.5)),mode,src)
 ob_list = [TE0,TE_top,TE_bottom]
 
 def J(source,top,bottom):
-    return npa.abs(top/source) ** 2 + npa.abs(bottom/source) ** 2
+    return npa.sum(npa.abs(top/source) ** 2 + npa.abs(bottom/source) ** 2)
 
 #----------------------------------------------------------------------
 #- Define optimization problem

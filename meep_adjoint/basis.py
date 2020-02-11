@@ -24,38 +24,38 @@ class Basis(ABC):
         #TODO implment material_mapping
         self.material_mapping=material_mapping
     
-    def gradient(self,dj_deps,x,y,z):
+    def gradient(self,d_E,a_E,frequency_scalar,design_grid):
         '''
         From the permittivity sensitivity (dJ/deps), calculate the gradient with respect to the user's actual design parameters.
-
-        Parameters
-        ----------
-        dj_deps : array_like
-            `dj_deps` represents the permittivity sensitivity (dJ/deps).
-        x : array_like
-            `x` represents the x-coordinates of each permittivity sensitivity (dJ/deps).
-        y : array_like
-            `y` represents the y-coordinates of each permittivity sensitivity (dJ/deps).
-        z : array_like
-            `z` represents the z-coordinates of each permittivity sensitivity (dJ/deps).
-        Returns
-        -------
-        dj_drho : array_like instance
-            The senistivity with respect to the user's design variables.
-        Examples
-        --------
         '''
 
-        # TODO: Chain rule for the material_mapping
+        # Chain rule for the material_mapping
+        if self.material_mapping is None:
+            # Propogate out the frequencies and components. Assume no dispersion, and assume isotropy.
+            # FIXME use tensordot instead...
+            # gradient = np.tensordot(d_E,a_E,axes=([1,0],[0,1]))
+            N = frequency_scalar.size
+            dJ_deps = np.zeros((len(design_grid.x),len(design_grid.y),len(design_grid.z)))
+            for ix in range(len(design_grid.x)):
+                for iy in range(len(design_grid.y)):
+                    for iz in range(len(design_grid.z)):
+                        for ic in range(3):
+                            dJ_deps[ix,iy,iz] += N* 2 * np.sum(np.real(frequency_scalar * a_E[ix,iy,iz,ic,:] * d_E[ix,iy,iz,ic,:]))
+        else:
+            raise NotImplementedError("Material maps are not yet implemented")
 
         # Chain rule for the basis interpolator
-        dj_deps = dj_deps.reshape(dj_deps.size,order='C')
-        dj_dp = dj_deps * self.get_basis_jacobian(x,y,z)
+        dJ_deps = dJ_deps.reshape(dJ_deps.size,order='C')
+        dJ_dp = dJ_deps * self.get_basis_jacobian(design_grid)
 
         # Chain rule for the filtering functions
-        dj_drho = np.matmul(jacobian(self.filter)(dj_dp), dj_dp)
+        # FIXME cleanup when no filter
+        if self.filter is None:
+            dJ_drho = dJ_dp
+        else:
+            dJ_drho = np.matmul(jacobian(self.filter)(dJ_dp), dJ_dp)
         
-        return dj_drho
+        return dJ_drho
     
     def func(self):
         def _f(p): 
@@ -103,10 +103,10 @@ class BilinearInterpolationBasis(Basis):
         weights, interp_idx = self.get_bilinear_row(p.x,p.y,self.rho_x,self.rho_y)
         return np.dot( self.rho_prime_vector[interp_idx], weights )                  
 
-    def get_basis_jacobian(self,x,y,z):
+    def get_basis_jacobian(self,design_grid):
         # get array of grid points that correspond to epsilon vector
         #dj_deps = dj_deps.reshape(dj_deps.size,order='C')
-        A = self.gen_interpolation_matrix(self.rho_x,self.rho_y,x,y)
+        A = self.gen_interpolation_matrix(self.rho_x,self.rho_y,np.array(design_grid.x),np.array(design_grid.y))
         #return (eps.T * A).T
         return A
     

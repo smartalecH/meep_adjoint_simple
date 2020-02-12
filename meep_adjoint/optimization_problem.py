@@ -161,10 +161,6 @@ class OptimizationProblem(object):
         for oa in self.objective_arguments:
             adjoint_powers += oa.adjoint_power
         frequency_scalar = 1j*2*np.pi*self.frequencies * 1 / np.sqrt(adjoint_powers)
-        print(adjoint_powers)
-
-        #quit()
-
         
         self.gradient = self.basis.gradient(self.d_E, self.a_E, frequency_scalar, self.design_grid)
         # FIXME record run stats for checking later

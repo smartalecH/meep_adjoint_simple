@@ -26,7 +26,6 @@ class Basis(ABC):
     
     def gradient(self,d_E,a_E,frequency_scalar,design_grid):
         '''
-        From the permittivity sensitivity (dJ/deps), calculate the gradient with respect to the user's actual design parameters.
         '''
 
         # Chain rule for the material_mapping
@@ -40,7 +39,7 @@ class Basis(ABC):
                 for iy in range(len(design_grid.y)):
                     for iz in range(len(design_grid.z)):
                         for ic in range(3):
-                            dJ_deps[ix,iy,iz] += N* 2 * np.sum(np.real(frequency_scalar * a_E[ix,iy,iz,ic,:] * d_E[ix,iy,iz,ic,:]))
+                            dJ_deps[ix,iy,iz] += 2 * np.real(np.sum(frequency_scalar * a_E[ix,iy,iz,ic,:] * d_E[ix,iy,iz,ic,:]))
         else:
             raise NotImplementedError("Material maps are not yet implemented")
 

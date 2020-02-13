@@ -38,8 +38,8 @@ class Basis(ABC):
             for ix in range(len(design_grid.x)):
                 for iy in range(len(design_grid.y)):
                     for iz in range(len(design_grid.z)):
-                        for ic in range(3):
-                            dJ_deps[ix,iy,iz] += 2 * np.real(np.sum(frequency_scalar * a_E[ix,iy,iz,ic,:] * d_E[ix,iy,iz,ic,:]))
+                        for ic in [2]:
+                            dJ_deps[ix,iy,iz] += 2 * np.sum(np.real(frequency_scalar * a_E[ix,iy,iz,ic,:] * d_E[ix,iy,iz,ic,:]))
         else:
             raise NotImplementedError("Material maps are not yet implemented")
 

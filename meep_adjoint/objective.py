@@ -44,7 +44,6 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
         dJ ........ the user needs to pass the dJ/dMonitor evaluation
         '''
         dJ = np.atleast_1d(dJ)
-
         # determine starting kpoint for reverse mode eigenmode source
         direction_scalar = 1 if self.forward else -1
         if self.k0 is None:
@@ -75,12 +74,12 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
         # implementations should convolve the source with the time dependent response (or something similar)
         # NOTE multiply j*2*pi*f after adjoint simulation since it's a simple scalar that is inherently freq dependent
         
-        da_dE = 0.5*(1/self.sim.resolution * 1/self.sim.resolution * self.cscale[self.fcen_idx])
+        da_dE = 0.5*(1/self.sim.resolution * 1/self.sim.resolution * self.cscale)
         scale = da_dE * dJ[self.fcen_idx]# * 1/np.sqrt(self.adjoint_power)
         
         # scale the adjoint source appropriately
-        self.source.amplitude=scale
-        
+        #self.source.amplitude=scale
+        self.scale_experiment = da_dE * dJ * 1/np.sqrt(self.adjoint_power)
         return self.source
 
     def __call__(self):

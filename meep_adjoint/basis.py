@@ -42,18 +42,17 @@ class Basis(ABC):
                             dJ_deps[ix,iy,iz] += 2 * np.sum(np.real(frequency_scalar * a_E[ix,iy,iz,ic,:] * d_E[ix,iy,iz,ic,:]))
         else:
             raise NotImplementedError("Material maps are not yet implemented")
-
+        
         # Chain rule for the basis interpolator
         dJ_deps = dJ_deps.reshape(dJ_deps.size,order='C')
         dJ_dp = dJ_deps * self.get_basis_jacobian(design_grid)
-
+        
         # Chain rule for the filtering functions
         # FIXME cleanup when no filter
         if self.filter is None:
             dJ_drho = dJ_dp
         else:
             dJ_drho = np.matmul(jacobian(self.filter)(dJ_dp), dJ_dp)
-        
         return dJ_drho
     
     def func(self):

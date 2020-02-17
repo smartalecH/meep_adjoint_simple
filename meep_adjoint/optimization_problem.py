@@ -73,13 +73,16 @@ class OptimizationProblem(object):
 
         # Run forward run
         # FIXME check if we actually need a forward run
+        print("Starting forward run...")
         self.forward_run()
 
         # Run adjoint simulation
         # FIXME check if we actually need an adjoint run
+        print("Starting adjoint run...")
         self.adjoint_run()
 
         # calculate gradient
+        print("Calculating gradient...")
         self.calculate_gradient()
 
         return self.f0, self.gradient

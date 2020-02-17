@@ -68,6 +68,7 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
         # Get scaling factor 
         # -------------------------------------- #
 
+        self.envelopes = np.array([self.source.src.fourier_transform(f) for f in self.freqs])
         self.adjoint_power = np.array([self.source.eig_power(f) for f in self.freqs])
 
         # FIXME currently assumes evaluating frequency factor at center is good enough. Future
@@ -79,7 +80,7 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
         
         # scale the adjoint source appropriately
         #self.source.amplitude=scale
-        self.scale_experiment = da_dE * dJ * 1/np.sqrt(self.adjoint_power)
+        self.scale_experiment = da_dE * dJ / self.envelopes#1/np.sqrt(self.adjoint_power) * np.sign(self.envelopes)
         return self.source
 
     def __call__(self):

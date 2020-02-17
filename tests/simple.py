@@ -31,7 +31,7 @@ time = 1200
 #----------------------------------------------------------------------
 
 fcen = 1/1.55
-width = 0.1
+width = 0.2
 fwidth = width * fcen
 source_center  = [-1,0,0]
 source_size    = mp.Vector3(0,2,0)
@@ -76,12 +76,13 @@ TE0 = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(0,1,0),size=mp.Ve
 ob_list = [TE0]
 
 def J(alpha):
-    return npa.sum(npa.abs(alpha) ** 2)
+    return npa.min(npa.abs(alpha) ** 2)
 
 #----------------------------------------------------------------------
 #- Define optimization problem
 #----------------------------------------------------------------------
-
+print(fcen)
+print(fcen-fwidth/10)
 opt = mpa.OptimizationProblem(
     simulation = sim,
     objective_function = J,
@@ -103,8 +104,7 @@ f0, g_adjoint = opt()
 #----------------------------------------------------------------------
 db = 1e-3
 n = Nx*Ny
-choose = 10
-
+choose = 20
 if mp.am_master():
     if path.exists('sweep_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny)) and load_from_file:
         data = np.load('sweep_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny))

@@ -71,13 +71,16 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
 
         #self.envelopes = np.array([self.time_src.fourier_transform(f) for f in self.freqs])
         #self.adjoint_power = np.array([self.source.eig_power(f) for f in self.freqs])
-        dt = self.sim.Courant / self.sim.resolution
+        num_dims = 2
+        dt = self.sim.Courant / self.sim.resolution / num_dims
         num_taps = 10
-        src = FilteredCustomSource(self.time_src.frequency,self.freqs,scale/forward_source_envelope,num_taps,dt,self.time_src.width,time_src_func=self.time_src)
+        src = FilteredCustomSource(self.time_src.frequency,self.freqs,scale,num_taps,dt,self.time_src)
         # scale the adjoint source appropriately
-        self.scale_experiment = scale[self.fcen_idx] * 1j * 2 * np.pi * self.freqs / forward_source_envelope#1/np.sqrt(self.adjoint_power) * np.sign(self.envelopes)
+        #self.scale_experiment = scale[self.fcen_idx] * 1j * 2 * np.pi * self.freqs / forward_source_envelope#1/np.sqrt(self.adjoint_power) * np.sign(self.envelopes)
+        
+        self.scale_experiment = 1j * 2 * np.pi * self.freqs / forward_source_envelope
         # generate source
-        self.source = mp.EigenModeSource(self.time_src,
+        self.source = mp.EigenModeSource(src,
                     eig_band=self.mode,
                     direction=mp.NO_DIRECTION,
                     eig_kpoint=k0,

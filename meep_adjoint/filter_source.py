@@ -6,104 +6,131 @@ import matplotlib.pyplot as plt
 
 
 class FilteredCustomSource(CustomSource):
-    def __init__(self,center_frequency,frequencies,frequency_response,num_taps,dt,width,time_src_func=None,cutoff=5.0,**kwargs):
+    def __init__(self,center_frequency,frequencies,frequency_response,num_taps,dt,time_src,**kwargs):
         self.center_frequency=center_frequency
         self.frequencies=frequencies
         self.frequency_response=frequency_response
-        self.num_taps=10
+        self.num_taps=500
         self.dt=dt
-        self.cutoff = cutoff
+        self.time_src=time_src
         f = self.func()
+
+        self.current_time = None
+        #quit()
 
         # initialize super
         super(FilteredCustomSource, self).__init__(src_func=f,center_frequency=self.center_frequency)
 
         # Set up a gaussian if the user fails to supply a custom envelope
-        if time_src_func is None:
+        '''if time_src_func is None:
             gaussian = mp.gaussian_src_time(self.center_frequency, width, self.start_time, self.start_time + 2 * width * self.cutoff)
             self.time_src_func = gaussian.dipole
         else:
-            self.time_src_func=time_src_func
+            self.time_src_func=time_src_func'''
 
         # calculate equivalent sample rate
         self.fs = 1/self.dt
 
         # estimate impulse response from frequency response
         self.estimate_impulse_response()
-    
+
     def filter(self,t):
         # shift feedforward memory
-        np.roll(self.memory, 1)
-        self.memory[0] = t
-
-        # calculate filter response
-        return np.dot(self.memory,self.taps)
+        np.roll(self.memory, -1)
+        if self.current_time is None or self.current_time != t:
+            self.current_time = t
+            self.memory[0] = self.time_src.swigobj.dipole(t)
+            # calculate filter response
+            self.current_y = np.dot(self.memory,self.taps)
+        return self.current_y
     
     def estimate_impulse_response(self):
-        '''
-        Reference: https://dspguru.com/dsp/tricks/using-parks-mcclellan-to-design-non-linear-phase-fir-filter/
-        '''
-
         # calculate band edges from target frequencies
-        df = self.frequencies[1] - self.frequencies[0]
-        edges = np.array([[a-df/3,a+df/3] for a in self.frequencies]).flatten()
-        edges = np.concatenate(([0, edges[0]-df/3],edges,[edges[-1]+df/3,self.fs/2]))
-        gain = np.concatenate(([0],self.frequency_response,[0]))
-
-        '''# estimate real part using PM
-        real_taps = signal.remez(self.num_taps, edges, np.real(gain), fs=self.fs,grid_density=32)
-        # estimate imag part using PM
-        imag_taps = signal.remez(self.num_taps, edges, np.imag(gain), type='hilbert', fs=self.fs)
-
-        # sum FIR together to get final response
-        self.taps = real_taps + imag_taps'''
         w = self.frequencies/(self.fs/2) * np.pi
         D = self.frequency_response
-        W = np.ones(D.shape)
-        #(a,b) = eqnerror(self.num_taps,self.num_taps,w,D,W,iter=1)
-        lstsqrs(self.num_taps,w,D)
-        quit()
+        #self.taps = lstsqrs(self.num_taps,w,D)
+        self.taps = cheb(self.num_taps,w,D)
 
-        w,h = signal.freqz(b,a)
-        print(h)
-        #print(np.imag(self.frequency_response))
-
-        plt.figure()
-        plt.subplot(2,1,1)
-        plt.plot(0.5*self.fs*w/np.pi,np.abs(h)**2)
-        plt.plot(self.frequencies,np.abs(self.frequency_response)**2,'o')
-        #plt.xlim(self.frequencies[0],self.frequencies[-1])
-
-        plt.subplot(2,1,2)
-        plt.plot(0.5*self.fs*w/np.pi,np.unwrap(np.angle(h)))
-        plt.plot(self.frequencies,np.unwrap(np.angle(self.frequency_response)),'o')
-        #plt.xlim(self.frequencies[0],self.frequencies[-1])
-
-        plt.show()
-        quit()
         # allocate filter memory taps
-        self.memory = np.zeros(self.taps.shape)
+        self.memory = np.zeros(self.taps.shape,dtype=np.complex128)
+    
     def func(self):
         def _f(t): 
-            return self(t)
+            return self.filter(t)
         return _f
 
 
 
 #function [a,b] = eqnerror(M,N,w,D,W,iter);
 
+def cheb(num_taps,freqs,h_desired):
+    deg = 1000
+    pm = np.polynomial.chebyshev.Chebyshev.fit(freqs,np.abs(h_desired),deg,[0,np.pi])
+    pp = np.polynomial.chebyshev.Chebyshev.fit(freqs,np.unwrap(np.angle(h_desired)),deg,[0,np.pi])
+    #om = np.linspace(freqs[0],freqs[-1],1e3)
+    om = np.linspace(0,np.pi,1e5)
+    fit = pm(om)*np.exp(1j*pp(om))
+    print(np.pi/(freqs[2]-freqs[1]))
+
+
+    plt.figure()
+    plt.subplot(2,1,1)
+    plt.plot(om,np.real(fit))
+    plt.plot(freqs,np.real(h_desired),'o')
+
+    plt.subplot(2,1,2)
+    plt.plot(om,np.imag(fit))
+    plt.plot(freqs,np.imag(h_desired),'o')
+
+    plt.show()
+    quit()
+
 def lstsqrs(num_taps,freqs,h_desired):
     ''' 
+    Current solution:
+    1. Build vandermonde/gram matrix of the dft basis functions
+    2. Perform least squares fit using psuedoinverse (optimal in l2 sense)
+    3. Coefficients are filter taps in time domain (since the DFT basis functions are just filter tap time delays)
+
+    We could gradually increase taps until an error criteria is met
     freqs = [0,pi]
+
+    Another possible solution:
+    1. Try fitting to a chebyshev polynomial of arbitrary degree
+    2. Sample in DFT domain according to number desired taps
+    3. IFFT to get time domain filter taps
     '''
     n_freqs = freqs.size
     vandermonde = np.zeros((n_freqs,num_taps),dtype=np.complex128)
-    for fi, f in enumerate(freqs):
-        for ci in range(num_taps):
-            vandermonde[fi,ci] = np.exp(-1j*ci*f)
+    for iom, om in enumerate(freqs):
+        for it in range(num_taps):
+            vandermonde[iom,it] = np.exp(-1j*it*om)
+    
     
     a = np.matmul(np.linalg.pinv(vandermonde), h_desired)
-    print(np.rad2deg(np.angle(vandermonde[:,3]/vandermonde[:,2])))
+    _, h_hat = signal.freqz(a,worN=freqs)
+    l2_error = np.sqrt(np.sum(np.abs(h_hat - h_desired)**2))
+
+    '''print(l2_error)
+    
+    worN = np.linspace(freqs[0],freqs[-1],500)
+    w, h = signal.freqz(a,worN=worN)
+    plt.figure()
+    plt.subplot(2,1,1)
+    plt.plot(w,np.real(h))
+    plt.plot(freqs,np.real(h_desired),'o')
+    #plt.xlim(freqs[0],freqs[-1])
+    plt.ylim(-.01,.01)
+
+    plt.subplot(2,1,2)
+    plt.plot(w,np.imag(h))
+    plt.plot(freqs,np.imag(h_desired),'o')
+    plt.ylim(-.01,.01)
+
+    plt.show()
+
+    quit()'''
+    
     return a
 def eqnerror(M,N,w,D,W,iter=1):
     '''

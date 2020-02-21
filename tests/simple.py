@@ -7,7 +7,7 @@ from matplotlib import pyplot as plt
 from os import path
 
 mp.quiet(quietval=True)
-load_from_file = False
+load_from_file = True
 
 #----------------------------------------------------------------------
 # Initial setup
@@ -43,7 +43,7 @@ source = [mp.EigenModeSource(src,
                     eig_kpoint=kpoint,
                     size = source_size,
                     center=source_center)]
-nf = 100
+nf = 20
 #----------------------------------------------------------------------
 #- geometric objects
 #----------------------------------------------------------------------
@@ -76,13 +76,11 @@ TE0 = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(0,1,0),size=mp.Ve
 ob_list = [TE0]
 
 def J(alpha):
-    return npa.min(npa.abs(alpha) ** 2)
+    return npa.sum(npa.abs(alpha) ** 2)
 
 #----------------------------------------------------------------------
 #- Define optimization problem
 #----------------------------------------------------------------------
-print(fcen)
-print(fcen-fwidth/10)
 opt = mpa.OptimizationProblem(
     simulation = sim,
     objective_function = J,

@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 import numpy as np
 import meep as mp
 from autograd import elementwise_grad as egrad  # for functions that vectorize over inputs
+from .filter_source import FilteredCustomSource
 
 class ObjectiveQuantitiy(ABC):
     @abstractmethod
@@ -56,31 +57,34 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
         else:
             k0 = direction_scalar * self.k0
         
-        # generate source
-        self.source = mp.EigenModeSource(self.time_src,
-                    eig_band = self.mode,
-                    direction=mp.NO_DIRECTION,
-                    eig_kpoint=k0,
-                    size = self.volume.size,
-                    center=self.volume.center)
-        
         # -------------------------------------- #
         # Get scaling factor 
         # -------------------------------------- #
-
-        self.envelopes = np.array([self.source.src.fourier_transform(f) for f in self.freqs])
-        self.adjoint_power = np.array([self.source.eig_power(f) for f in self.freqs])
 
         # FIXME currently assumes evaluating frequency factor at center is good enough. Future
         # implementations should convolve the source with the time dependent response (or something similar)
         # NOTE multiply j*2*pi*f after adjoint simulation since it's a simple scalar that is inherently freq dependent
         
         da_dE = 0.5*(1/self.sim.resolution * 1/self.sim.resolution * self.cscale)
-        scale = da_dE * dJ[self.fcen_idx]# * 1/np.sqrt(self.adjoint_power)
-        
+        scale = da_dE * dJ# * 1/np.sqrt(self.adjoint_power)
+        forward_source_envelope = np.array([self.time_src.fourier_transform(f) for f in self.freqs])
+
+        #self.envelopes = np.array([self.time_src.fourier_transform(f) for f in self.freqs])
+        #self.adjoint_power = np.array([self.source.eig_power(f) for f in self.freqs])
+        dt = self.sim.Courant / self.sim.resolution
+        num_taps = 10
+        src = FilteredCustomSource(self.time_src.frequency,self.freqs,scale/forward_source_envelope,num_taps,dt,self.time_src.width,time_src_func=self.time_src)
         # scale the adjoint source appropriately
-        #self.source.amplitude=scale
-        self.scale_experiment = da_dE * dJ / self.envelopes#1/np.sqrt(self.adjoint_power) * np.sign(self.envelopes)
+        self.scale_experiment = scale[self.fcen_idx] * 1j * 2 * np.pi * self.freqs / forward_source_envelope#1/np.sqrt(self.adjoint_power) * np.sign(self.envelopes)
+        # generate source
+        self.source = mp.EigenModeSource(self.time_src,
+                    eig_band=self.mode,
+                    direction=mp.NO_DIRECTION,
+                    eig_kpoint=k0,
+                    size=self.volume.size,
+                    #amplitude=scale[self.fcen_idx],
+                    center=self.volume.center)
+        
         return self.source
 
     def __call__(self):

@@ -12,4 +12,4 @@ from .basis import (Basis, BilinearInterpolationBasis)
 
 from .optimization_problem import OptimizationProblem
 
-from .filter_source import (FilteredCustomSource,eqnerror)
+from .filter_source import (FilteredSource)

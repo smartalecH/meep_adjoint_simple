@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 import numpy as np
 import meep as mp
 from autograd import elementwise_grad as egrad  # for functions that vectorize over inputs
-from .filter_source import FilteredCustomSource
+#from .filter_source import FilteredCustomSource
 
 class ObjectiveQuantitiy(ABC):
     @abstractmethod

@@ -14,61 +14,50 @@ class FilteredSource(CustomSource):
         self.min_err = min_err
         f = self.func()
 
-        # calculate dft of input signal
-        signal_t = np.array([time_src.swigobj.dipole(t) for t in np.arange(0,T,dt)])
-        signal_dft = np.flipud(np.fft.fft(signal_t)[int(signal_t.size/2+1):])# * dt / np.sqrt(2*np.pi) # only need positive freqs
-        signal_freq = np.flipud(np.abs(np.fft.fftfreq(signal_t.size,dt)[int(signal_t.size/2+1):])) # only need positive freqs
-
-        # clamp dft of input signal to frequency range of filter transfer function
-        fmin, fmax = (min(frequencies),max(frequencies))
-        fmin_idx, fmaxidx = (np.argmin(np.abs(signal_freq-fmin)**2), np.argmin(np.abs(signal_freq-fmax)**2))
-        signal_dft = signal_dft[fmin_idx:fmaxidx+1]
-        signal_freq = signal_freq[fmin_idx:fmaxidx+1]
-
-        # fit dft of input signal to interpolator
-        signal_rbf = Rbf(signal_freq, signal_dft, function='gaussian')  # radial basis function interpolator instance
-
-        # sample dft of input signal to same points as filter transfer function
-        signal_freq_sampled = signal_rbf(frequencies)
+        # calculate dtft of input signal
+        signal_t = np.array([time_src.swigobj.current(t,dt) for t in np.arange(0,T,dt)])
+        signal_dtft = np.zeros((frequencies.shape),dtype=np.complex128)
+        for n, st in enumerate(signal_t):
+            for fi, f in enumerate(frequencies):
+                signal_dtft[fi] += np.exp(1j*2*np.pi*f*n*dt)*st
 
         # multiply sampled dft of input signal with filter transfer function
-        H = signal_freq_sampled #* frequency_response
+        H = signal_dtft #* frequency_response
 
         # fit final frequency response to rbf
-        H_rbf = Rbf(frequencies, H, function='gaussian')  # radial basis function interpolator instance
+        H_rbf = Rbf(frequencies, H, function='gaussian')
         f_rbf = np.arange(0,1/dt,1/T)
 
         # estimate impulse response of final frequency response using ifft
-        h = np.flipud(np.fft.ifft(H_rbf(f_rbf))) # flip signal
+        h = np.flipud(np.fft.ifft(H_rbf(f_rbf))) # flip signal becuase fft convention is backwards of meeps
         t_h = np.arange(0,T,dt)
 
         # fit impulse response to function to make implementation easy
-        h_rbf = PchipInterpolator(t_h, h)  # we don't need a ton of extra acuraccy -- just speed
+        h_rbf = PchipInterpolator(t_h, h)  # we don't need a ton of extra accuracy at this point -- just speed
         #signal_fourier_transform = np.array([time_src.fourier_transform(f) for f in self.frequencies])
-
-        def f_temp(t):
-            #return np.asscalar(h_rbf(t))
-            return time_src.swigobj.dipole(t)
-    
         # view results
         '''plt.figure()
         plt.subplot(2,1,1)
-        plt.plot(t_h,np.abs(h))
-        plt.plot(t_h,np.abs(h_rbf(t_h)),'--')
+        plt.semilogy(t_h,np.abs(h))
+        #plt.plot(t_h,np.abs(h_rbf(t_h)),'--')
         #plt.xlim(1/1.7,1/1.4)
 
         plt.subplot(2,1,2)
         plt.plot(t_h,np.unwrap(np.angle(h)))
-        plt.plot(t_h,np.unwrap(np.angle(h_rbf(t_h))),'--')
+        #plt.plot(t_h,np.unwrap(np.angle(h_rbf(t_h))),'--')
         #plt.xlim(1/1.7,1/1.4)
         plt.show()
         quit()'''
 
+        def f_temp(t):
+            return np.asscalar(h_rbf(t))
+
         #self.estimate_impulse_response()
         # initialize super
-        super(FilteredSource, self).__init__(src_func=f_temp,center_frequency=self.center_frequency,is_integrated=time_src.is_integrated)
+        super(FilteredSource, self).__init__(src_func=f_temp,center_frequency=self.center_frequency,is_integrated=False)
         
-        
+    def gaussian(self,f,f0,fwidth):
+        return np.exp(-(f-f0)**2/(2*fwidth**2))
 
     def __call__(self,t):
         # simple RBF with gaussian kernel reduces to inner product at time step

@@ -45,6 +45,11 @@ class OptimizationProblem(object):
         self.freq_max = self.fcen + self.df/2
 
         # TODO add dynamic method that checks for convergence
+        if nf > 1:
+            T_dtft_min = 1/(df/nf)
+            if T_dtft_min > time:
+                print("Warning: the adjoint simulation will need more time to run than specified with the given frequency density. The runtime has been appropriately increased.")
+                time = T_dtft_min
         self.time=time
         self.num_design_params = self.basis.num_design_params
         
@@ -128,14 +133,17 @@ class OptimizationProblem(object):
                 self.d_E[:,:,:,ic,f] = np.atleast_3d(self.sim.get_dft_array(self.design_region_monitor,c,f))
 
     def adjoint_run(self):
+        # Grab the simulation step size from the forward run
+        self.dt = self.sim.fields.dt
+
         # Prepare adjoint run
         self.sim.reset_meep()
 
+        # Replace sources with adjoint sources
         self.adjoint_sources = []
         for mi, m in enumerate(self.objective_arguments):
             dJ = grad(self.objective_function,mi)(*self.results_list) # get gradient of objective w.r.t. monitor
-            self.adjoint_sources.append(m.place_adjoint_source(dJ)) # place the appropriate adjoint sources
-
+            self.adjoint_sources.append(m.place_adjoint_source(dJ,self.dt,self.time)) # place the appropriate adjoint sources
         self.sim.change_sources(self.adjoint_sources)
 
         # reregsiter design flux
@@ -163,9 +171,9 @@ class OptimizationProblem(object):
         '''adjoint_powers = 0
         for oa in self.objective_arguments:
             adjoint_powers += oa.adjoint_power'''
-        width_f = (self.df) ** 2
-        frequency_scalar = self.objective_arguments[0].scale_experiment#1j*2*np.pi*self.frequencies * self.objective_arguments[0].scale_experiment#1 / np.sqrt(adjoint_powers)
-        
+        #width_f = (self.df) ** 2
+        #frequency_scalar = self.objective_arguments[0].scale_experiment#1j*2*np.pi*self.frequencies * self.objective_arguments[0].scale_experiment#1 / np.sqrt(adjoint_powers)
+        frequency_scalar = np.ones((self.nf,))
         self.gradient = self.basis.gradient(self.d_E, self.a_E, frequency_scalar, self.design_grid)
         # FIXME record run stats for checking later
     

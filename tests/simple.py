@@ -1,3 +1,7 @@
+'''
+simple.py
+'''
+
 import meep as mp
 import meep_adjoint as mpa
 import autograd.numpy as npa
@@ -7,7 +11,7 @@ from matplotlib import pyplot as plt
 from os import path
 
 mp.quiet(quietval=True)
-load_from_file = True
+load_from_file = False
 
 #----------------------------------------------------------------------
 # Initial setup
@@ -15,7 +19,6 @@ load_from_file = True
 
 seed = 24
 np.random.seed(seed)
-
 resolution = 10
 
 Sx = 6
@@ -24,7 +27,7 @@ cell_size = mp.Vector3(Sx,Sy)
 
 pml_layers = [mp.PML(1.0)]
 
-time = 1200
+time = 500
 
 #----------------------------------------------------------------------
 # Eigenmode source
@@ -43,7 +46,6 @@ source = [mp.EigenModeSource(src,
                     eig_kpoint=kpoint,
                     size = source_size,
                     center=source_center)]
-nf = 20
 #----------------------------------------------------------------------
 #- geometric objects
 #----------------------------------------------------------------------
@@ -88,7 +90,7 @@ opt = mpa.OptimizationProblem(
     basis = basis,
     fcen = fcen,
     df = fwidth,
-    nf = nf
+    time = time
 )
 
 #----------------------------------------------------------------------
@@ -104,8 +106,8 @@ db = 1e-3
 n = Nx*Ny
 choose = 20
 if mp.am_master():
-    if path.exists('sweep_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny)) and load_from_file:
-        data = np.load('sweep_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny))
+    if path.exists('simple_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny)) and load_from_file:
+        data = np.load('simple_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny))
         idx = data['idx']
         g_discrete = data['g_discrete']
 
@@ -132,8 +134,7 @@ if mp.am_master():
     plt.legend()
     plt.grid(True)
 
-
-    np.savez('sweep_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny),g_discrete=g_discrete,g_adjoint=g_adjoint,idx=idx,m=m,b=b,resolution=resolution)
-    plt.savefig('comparison_{}_seed_{}_Nx_{}_Ny_{}.png'.format(resolution,seed,Nx,Ny))
+    np.savez('simple_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny),g_discrete=g_discrete,g_adjoint=g_adjoint,idx=idx,m=m,b=b,resolution=resolution)
+    plt.savefig('simple_{}_seed_{}_Nx_{}_Ny_{}.png'.format(resolution,seed,Nx,Ny))
 
     plt.show()

@@ -1,3 +1,7 @@
+'''
+simple_splitter.py
+'''
+
 import meep as mp
 import meep_adjoint as mpa
 import autograd.numpy as npa
@@ -15,8 +19,8 @@ load_from_file = False
 
 seed = 24
 np.random.seed(seed)
-
 resolution = 10
+num_freqs = 1
 
 Sx = 6
 Sy = 5
@@ -74,13 +78,13 @@ sim = mp.Simulation(cell_size=cell_size,
 
 mode = 1
 
-TE0 = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(x=-1),size=mp.Vector3(y=1.5)),mode,src)
-TE_top = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(0,1,0),size=mp.Vector3(x=1.5)),mode,src)
-TE_bottom = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(0,-1,0),size=mp.Vector3(x=1.5)),mode,src)
+TE0 = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(x=-1),size=mp.Vector3(y=1.5)),mode)
+TE_top = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(0,1,0),size=mp.Vector3(x=1.5)),mode)
+TE_bottom = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(0,-1,0),size=mp.Vector3(x=1.5)),mode,forward=False)
 ob_list = [TE0,TE_top,TE_bottom]
 
 def J(source,top,bottom):
-    return npa.sum(npa.abs(top/source) ** 2 + npa.abs(bottom/source) ** 2)
+    return npa.sum(0.5*npa.abs(top/source) ** 2 + 0.5*npa.abs(bottom/source) ** 2)
 
 #----------------------------------------------------------------------
 #- Define optimization problem
@@ -90,9 +94,9 @@ opt = mpa.OptimizationProblem(
     simulation = sim,
     objective_function = J,
     objective_arguments = ob_list,
-    design_function = design_function,
     basis = basis,
-    fcen = fcen
+    fcen = fcen,
+    time=time
 )
 
 #----------------------------------------------------------------------
@@ -108,8 +112,8 @@ db = 1e-3
 n = Nx*Ny
 choose = 10
 
-if path.exists('sweep_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny)) and load_from_file:
-    data = np.load('sweep_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny))
+if path.exists('simple_splitter_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny)) and load_from_file:
+    data = np.load('simple_splitter_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny))
     idx = data['idx']
     g_discrete = data['g_discrete']
 
@@ -137,7 +141,7 @@ plt.legend()
 plt.grid(True)
 
 
-np.savez('sweep_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny),g_discrete=g_discrete,g_adjoint=g_adjoint,idx=idx,m=m,b=b,resolution=resolution)
-plt.savefig('comparison_{}_seed_{}_Nx_{}_Ny_{}.png'.format(resolution,seed,Nx,Ny))
+np.savez('simple_splitter_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny),g_discrete=g_discrete,g_adjoint=g_adjoint,idx=idx,m=m,b=b,resolution=resolution)
+plt.savefig('simple_splitter_{}_seed_{}_Nx_{}_Ny_{}.png'.format(resolution,seed,Nx,Ny))
 
 plt.show()

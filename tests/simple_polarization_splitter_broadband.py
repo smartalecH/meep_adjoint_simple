@@ -1,5 +1,5 @@
 '''
-simple_splitter_broadband.py
+simple_polarization_splitter_broadband.py
 '''
 
 import meep as mp
@@ -28,7 +28,7 @@ cell_size = mp.Vector3(Sx,Sy)
 
 pml_layers = [mp.PML(1.0)]
 
-time = 1000
+time = 500
 
 #----------------------------------------------------------------------
 # Eigenmode source
@@ -41,12 +41,22 @@ source_center  = [-1.5,0,0]
 source_size    = mp.Vector3(0,2,0)
 kpoint = mp.Vector3(1,0,0)
 src = mp.GaussianSource(frequency=fcen,fwidth=fwidth)
-source = [mp.EigenModeSource(src,
+source = [
+    mp.EigenModeSource(src,
                     eig_band = 1,
                     direction=mp.NO_DIRECTION,
                     eig_kpoint=kpoint,
                     size = source_size,
-                    center=source_center)]
+                    eig_parity = mp.ODD_Y, # TM mode
+                    center=source_center),
+    mp.EigenModeSource(src,
+                    eig_band = 1,
+                    direction=mp.NO_DIRECTION,
+                    eig_kpoint=kpoint,
+                    size = source_size,
+                    eig_parity = mp.EVEN_Y, # TE mode
+                    center=source_center)
+        ]
 
 #----------------------------------------------------------------------
 #- geometric objects
@@ -78,13 +88,21 @@ sim = mp.Simulation(cell_size=cell_size,
 
 mode = 1
 
-TE0 = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(x=-1),size=mp.Vector3(y=1.5)),mode)
-TE_top = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(0,1,0),size=mp.Vector3(x=1.5)),mode)
-TE_bottom = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(0,-1,0),size=mp.Vector3(x=1.5)),mode,forward=False)
-ob_list = [TE0,TE_top,TE_bottom]
+TE0 = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(x=-1),size=mp.Vector3(y=1.5)),mode,eig_parity = mp.EVEN_Y)
+TM0 = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(x=-1),size=mp.Vector3(y=1.5)),mode,eig_parity = mp.ODD_Y)
+TE_top = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(0,1,0),size=mp.Vector3(x=1.5)),mode,eig_parity = mp.EVEN_Y)
+TM_top = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(0,1,0),size=mp.Vector3(x=1.5)),mode,eig_parity = mp.ODD_Y)
+TE_bottom = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(0,-1,0),size=mp.Vector3(x=1.5)),mode,forward=False,eig_parity = mp.EVEN_Y)
+TM_bottom = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(0,-1,0),size=mp.Vector3(x=1.5)),mode,forward=False,eig_parity = mp.EVEN_Y)
+ob_list = [TE0,TM0,TE_top,TM_top,TE_bottom,TM_bottom]
 
-def J(source,top,bottom):
-    return npa.sum(0.5*npa.abs(top/source) ** 2 + 0.5*npa.abs(bottom/source) ** 2)
+def J(source_TE,source_TM,top_TE,top_TM,bottom_TE,bottom_TM):
+    return npa.sum(
+        0.5*npa.abs(top_TE/source_TE) ** 2 
+        + 0.5*npa.abs(bottom_TM/source_TM) ** 2
+        - npa.abs(top_TM/source_TM) ** 2
+        - npa.abs(bottom_TE/source_TE) ** 2
+        )
 
 #----------------------------------------------------------------------
 #- Define optimization problem
@@ -114,8 +132,8 @@ db = 1e-3
 n = Nx*Ny
 choose = 20
 
-if path.exists('simple_splitter_broadband_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny)) and load_from_file:
-    data = np.load('simple_splitter_broadband_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny))
+if path.exists('simple_polarization_splitter_broadband_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny)) and load_from_file:
+    data = np.load('simple_polarization_splitter_broadband_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny))
     idx = data['idx']
     g_discrete = data['g_discrete']
 
@@ -143,7 +161,7 @@ plt.legend()
 plt.grid(True)
 
 
-np.savez('simple_splitter_broadband_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny),g_discrete=g_discrete,g_adjoint=g_adjoint,idx=idx,m=m,b=b,resolution=resolution)
-plt.savefig('simple_splitter_broadband_{}_seed_{}_Nx_{}_Ny_{}.png'.format(resolution,seed,Nx,Ny))
+np.savez('simple_polarization_splitter_broadband_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny),g_discrete=g_discrete,g_adjoint=g_adjoint,idx=idx,m=m,b=b,resolution=resolution)
+plt.savefig('simple_polarization_splitter_broadband_{}_seed_{}_Nx_{}_Ny_{}.png'.format(resolution,seed,Nx,Ny))
 
 plt.show()

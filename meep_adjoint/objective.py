@@ -4,7 +4,8 @@ from abc import ABC, abstractmethod
 import numpy as np
 import meep as mp
 from autograd import elementwise_grad as egrad  # for functions that vectorize over inputs
-#from .filter_source import FilteredCustomSource
+from .filter_source import FilteredSource
+from matplotlib import pyplot as plt
 
 class ObjectiveQuantitiy(ABC):
     @abstractmethod
@@ -18,7 +19,7 @@ class ObjectiveQuantitiy(ABC):
         return
 
 class EigenmodeCoefficient(ObjectiveQuantitiy):
-    def __init__(self,sim,volume,mode,forward=True,k0=None):
+    def __init__(self,sim,volume,mode,forward=True,k0=None,**kwargs):
         '''
         time_src ............... time dependence of source
         '''
@@ -29,6 +30,7 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
         self.normal_direction = None
         self.k0 = k0
         self.eval = None
+        self.EigenMode_kwargs = kwargs
         return
     
     def register_monitors(self,fcen,df,nf):
@@ -40,9 +42,11 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
         self.normal_direction = self.monitor.normal_direction
         return self.monitor
     
-    def place_adjoint_source(self,dJ):
+    def place_adjoint_source(self,dJ,dt,time):
         '''
         dJ ........ the user needs to pass the dJ/dMonitor evaluation
+        dt ........ the timestep size from sim.fields.dt of the forward sim
+        time ...... the forward simulation time in meeep units
         '''
         dJ = np.atleast_1d(dJ)
         # determine starting kpoint for reverse mode eigenmode source
@@ -60,54 +64,43 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
         # -------------------------------------- #
         # Get scaling factor 
         # -------------------------------------- #
-
-        # FIXME currently assumes evaluating frequency factor at center is good enough. Future
-        # implementations should convolve the source with the time dependent response (or something similar)
-        # NOTE multiply j*2*pi*f after adjoint simulation since it's a simple scalar that is inherently freq dependent
+        da_dE = 0.5*(1/self.sim.resolution * 1/self.sim.resolution * self.cscale) 
+        scale = da_dE * dJ * 1j * 2 * np.pi * self.freqs / np.array([self.time_src.fourier_transform(f) for f in self.freqs]) # final scale factor
         
-        da_dE = 0.5*(1/self.sim.resolution * 1/self.sim.resolution * self.cscale)
-        scale = da_dE * dJ# * 1/np.sqrt(self.adjoint_power)
-        forward_source_envelope = np.array([self.time_src.fourier_transform(f) for f in self.freqs])
-
-        #self.envelopes = np.array([self.time_src.fourier_transform(f) for f in self.freqs])
-        #self.adjoint_power = np.array([self.source.eig_power(f) for f in self.freqs])
-        num_dims = 2
-        dt = self.sim.Courant / self.sim.resolution / num_dims
-        num_taps = 10
-        src = FilteredCustomSource(self.time_src.frequency,self.freqs,scale,num_taps,dt,self.time_src)
-        # scale the adjoint source appropriately
-        #self.scale_experiment = scale[self.fcen_idx] * 1j * 2 * np.pi * self.freqs / forward_source_envelope#1/np.sqrt(self.adjoint_power) * np.sign(self.envelopes)
-        
-        self.scale_experiment = 1j * 2 * np.pi * self.freqs / forward_source_envelope
-        # generate source
+        if self.freqs.size == 1:
+            # Single frequency simulations. We need to drive it with a time profile.
+            src = self.time_src
+            amp = scale
+        else:
+            # Multifrequency simulations just use the desired frequency profile to generate the time profile.
+            src = FilteredSource(self.time_src.frequency,self.freqs,scale,dt,time,self.time_src) # generate source from braodband response
+            amp = 1
+        # generate source object
         self.source = mp.EigenModeSource(src,
                     eig_band=self.mode,
                     direction=mp.NO_DIRECTION,
                     eig_kpoint=k0,
+                    amplitude=amp,
                     size=self.volume.size,
-                    #amplitude=scale[self.fcen_idx],
-                    center=self.volume.center)
+                    center=self.volume.center,
+                    **self.EigenMode_kwargs)
         
         return self.source
 
     def __call__(self):
-        # record simulation's forward power for later scaling 
-        # TODO find better way to do this in case sources are complicated...
-        # TODO allow for multiple input sources
-        self.forward_power = self.sim.sources[0].eig_power(self.fcen)
+        # For single frequency simulations, we just need a workable time profile. 
+        # so just grab the first available time profile and use that.
         self.time_src = self.sim.sources[0].src
 
-        # record eigenmode coefficients for scaling
-        ob = self.sim.get_eigenmode_coefficients(self.monitor,[self.mode])
-        self.eval = np.squeeze(ob.alpha[:,:,self.forward])
+        # Eigenmode data
+        ob = self.sim.get_eigenmode_coefficients(self.monitor,[self.mode],**self.EigenMode_kwargs)
+        self.eval = np.squeeze(ob.alpha[:,:,self.forward]) # record eigenmode coefficients for scaling   
+        self.cscale = ob.cscale # pull scaling factor
 
         # record all freqs of interest
         self.freqs = np.atleast_1d(mp.get_eigenmode_freqs(self.monitor))
 
         # get f0 frequency index
         self.fcen_idx = np.argmin(np.abs(self.freqs-self.fcen))
-
-        # pull scaling factor 
-        self.cscale = ob.cscale
 
         return self.eval

@@ -11,7 +11,7 @@ from matplotlib import pyplot as plt
 from os import path
 
 mp.quiet(quietval=True)
-load_from_file = False
+load_from_file = True
 
 #----------------------------------------------------------------------
 # Initial setup
@@ -84,13 +84,12 @@ def J(alpha):
 #- Define optimization problem
 #----------------------------------------------------------------------
 opt = mpa.OptimizationProblem(
-    simulation = sim,
-    objective_function = J,
-    objective_arguments = ob_list,
-    basis = basis,
-    fcen = fcen,
-    df = fwidth,
-    time = time
+    simulation=sim,
+    objective_function=J,
+    objective_arguments=ob_list,
+    basis=[basis],
+    fcen=fcen,
+    time=time
 )
 
 #----------------------------------------------------------------------

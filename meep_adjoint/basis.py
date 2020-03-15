@@ -24,7 +24,7 @@ class Basis(ABC):
         #TODO implment material_mapping
         self.material_mapping=material_mapping
     
-    def gradient(self,d_E,a_E,frequency_scalar,design_grid):
+    def gradient(self,d_E,a_E,design_grid):
         '''
         '''
 
@@ -33,13 +33,13 @@ class Basis(ABC):
             # Propogate out the frequencies and components. Assume no dispersion, and assume isotropy.
             # FIXME use tensordot instead...
             # gradient = np.tensordot(d_E,a_E,axes=([1,0],[0,1]))
-            N = frequency_scalar.size
+            #N = frequency_scalar.size
             dJ_deps = np.zeros((len(design_grid.x),len(design_grid.y),len(design_grid.z)))
             for ix in range(len(design_grid.x)):
                 for iy in range(len(design_grid.y)):
                     for iz in range(len(design_grid.z)):
                         for ic in [2]:
-                            dJ_deps[ix,iy,iz] += 2 * np.sum(np.real(frequency_scalar * a_E[ix,iy,iz,ic,:] * d_E[ix,iy,iz,ic,:]))
+                            dJ_deps[ix,iy,iz] += 2 * np.sum(np.real(a_E[ix,iy,iz,ic,:] * d_E[ix,iy,iz,ic,:]))
         else:
             raise NotImplementedError("Material maps are not yet implemented")
         

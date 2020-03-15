@@ -11,7 +11,7 @@ from matplotlib import pyplot as plt
 from os import path
 
 mp.quiet(quietval=True)
-load_from_file = False
+load_from_file = True
 
 #----------------------------------------------------------------------
 # Initial setup

@@ -36,7 +36,8 @@ class OptimizationProblem(object):
         self.objective_function = objective_function
         self.objective_arguments = objective_arguments
         self.basis = basis
-        self.design_region = self.basis.volume
+        self.design_regions = [dr.volume for dr in self.basis]
+        self.num_bases = len(self.basis)
         
         self.fcen = fcen
         self.df = df
@@ -51,7 +52,7 @@ class OptimizationProblem(object):
                 print("Warning: the adjoint simulation will need more time to run than specified with the given frequency density. The runtime has been appropriately increased.")
                 time = T_dtft_min
         self.time=time
-        self.num_design_params = self.basis.num_design_params
+        self.num_design_params = [ni.num_design_params for ni in self.basis]
         
         # store sources for finite difference estimations
         self.forward_sources = self.sim.sources     
@@ -65,10 +66,10 @@ class OptimizationProblem(object):
             m.register_monitors(self.fcen,self.df,self.nf)
 
         # register design region
-        self.design_region_monitor = self.sim.add_dft_fields([mp.Ex,mp.Ey,mp.Ez],self.freq_min,self.freq_max,self.nf,where=self.design_region,yee_grid=False)
+        self.design_region_monitors = [self.sim.add_dft_fields([mp.Ex,mp.Ey,mp.Ez],self.freq_min,self.freq_max,self.nf,where=dr,yee_grid=False) for dr in self.design_regions]
 
         # store design region voxel parameters
-        self.design_grid = Grid(*self.sim.get_array_metadata(dft_cell=self.design_region_monitor))
+        self.design_grids = [Grid(*self.sim.get_array_metadata(dft_cell=drm)) for drm in self.design_region_monitors]
 
     def __call__(self, rho_vector=None, need_value=True, need_gradient=True):
         """Evaluate value and/or gradient of objective function.
@@ -89,8 +90,7 @@ class OptimizationProblem(object):
         # calculate gradient
         print("Calculating gradient...")
         self.calculate_gradient()
-
-        return self.f0, self.gradient
+        return (self.f0, self.gradient[0]) if len(self.gradient) == 1 else (self.f0, self.gradient)
 
     def get_fdf_funcs(self):
         """construct callable functions for objective function value and gradient
@@ -125,12 +125,13 @@ class OptimizationProblem(object):
         # evaluate objective
         self.f0 = self.objective_function(*self.results_list)
 
-        # Store forward fields in array (x,y,z,field_components,frequencies)
+        # Store forward fields for each design basis in array (x,y,z,field_components,frequencies)
         # FIXME allow for multiple design regions
-        self.d_E = np.zeros((len(self.design_grid.x),len(self.design_grid.y),len(self.design_grid.z),3,self.nf),dtype=np.complex128)
-        for f in range(self.nf):
-            for ic, c in enumerate([mp.Ex,mp.Ey,mp.Ez]):
-                self.d_E[:,:,:,ic,f] = np.atleast_3d(self.sim.get_dft_array(self.design_region_monitor,c,f))
+        self.d_E = [np.zeros((len(dg.x),len(dg.y),len(dg.z),3,self.nf),dtype=np.complex128) for dg in self.design_grids]
+        for nb, dgm in enumerate(self.design_region_monitors):
+            for f in range(self.nf):
+                for ic, c in enumerate([mp.Ex,mp.Ey,mp.Ez]):
+                    self.d_E[nb][:,:,:,ic,f] = np.atleast_3d(self.sim.get_dft_array(dgm,c,f))
 
     def adjoint_run(self):
         # Grab the simulation step size from the forward run
@@ -149,40 +150,33 @@ class OptimizationProblem(object):
         # reregsiter design flux
         # FIXME cleanup design region input
         # TODO use yee grid directly 
-        self.design_region_monitor = self.sim.add_dft_fields([mp.Ex,mp.Ey,mp.Ez],self.freq_min,self.freq_max,self.nf,where=self.design_region,yee_grid=False)
+        self.design_region_monitors = [self.sim.add_dft_fields([mp.Ex,mp.Ey,mp.Ez],self.freq_min,self.freq_max,self.nf,where=dr,yee_grid=False) for dr in self.design_regions]
 
         # Adjoint run
         # TODO make more dynamic
         self.sim.run(until=self.time)
 
-        # Store adjoint fields in array (x,y,z,field_components,frequencies)
+        # Store adjoint fields for each design basis in array (x,y,z,field_components,frequencies)
         # FIXME allow for multiple design regions
-        self.a_E = np.zeros((len(self.design_grid.x),len(self.design_grid.y),len(self.design_grid.z),3,self.nf),dtype=np.complex128)
-        for f in range(self.nf):
-            for ic, c in enumerate([mp.Ex,mp.Ey,mp.Ez]):
-                self.a_E[:,:,:,ic,f] = np.atleast_3d(self.sim.get_dft_array(self.design_region_monitor,c,f))
+        self.a_E = [np.zeros((len(dg.x),len(dg.y),len(dg.z),3,self.nf),dtype=np.complex128) for dg in self.design_grids]
+        for nb, dgm in enumerate(self.design_region_monitors):
+            for f in range(self.nf):
+                for ic, c in enumerate([mp.Ex,mp.Ey,mp.Ez]):
+                    self.a_E[nb][:,:,:,ic,f] = np.atleast_3d(self.sim.get_dft_array(dgm,c,f))
         
-        # store frequencies
-        self.frequencies = np.array(mp.get_flux_freqs(self.design_region_monitor))
+        # store frequencies (will be same for all monitors)
+        self.frequencies = np.array(mp.get_flux_freqs(self.design_region_monitors[0]))
 
     def calculate_gradient(self):
+        # Iterate through all design region bases
+        self.gradient = [self.basis[nb].gradient(self.d_E[nb], self.a_E[nb], self.design_grids[nb]) for nb in range(self.num_bases)]
 
-        # calculate frequency scalar
-        '''adjoint_powers = 0
-        for oa in self.objective_arguments:
-            adjoint_powers += oa.adjoint_power'''
-        #width_f = (self.df) ** 2
-        #frequency_scalar = self.objective_arguments[0].scale_experiment#1j*2*np.pi*self.frequencies * self.objective_arguments[0].scale_experiment#1 / np.sqrt(adjoint_powers)
-        frequency_scalar = np.ones((self.nf,))
-        self.gradient = self.basis.gradient(self.d_E, self.a_E, frequency_scalar, self.design_grid)
-        # FIXME record run stats for checking later
-    
-    def calculate_fd_gradient(self,num_gradients=1,db=1e-4):
+    def calculate_fd_gradient(self,num_gradients=1,db=1e-4,basis_idx=0):
         '''
         Estimate central difference gradients.
         '''
 
-        if num_gradients > self.num_design_params:
+        if num_gradients > self.num_design_params[basis_idx]:
             raise ValueError("The requested number of gradients must be less than or equal to the total number of design parameters.")
 
         # cleanup simulation object
@@ -190,15 +184,15 @@ class OptimizationProblem(object):
         self.sim.change_sources(self.forward_sources)
 
         # preallocate result vector
-        fd_gradient = 0*np.ones((self.num_design_params,))
+        fd_gradient = 0*np.ones((self.num_design_params[basis_idx],))
 
         # randomly choose indices to loop estimate
-        fd_gradient_idx = np.random.choice(self.num_design_params,num_gradients,replace=False)
+        fd_gradient_idx = np.random.choice(self.num_design_params[basis_idx],num_gradients,replace=False)
 
         for k in fd_gradient_idx:
             
-            b0 = np.ones((self.num_design_params,))
-            b0[:] = self.basis.rho_vector
+            b0 = np.ones((self.num_design_params[basis_idx],))
+            b0[:] = self.basis[basis_idx].rho_vector
             # -------------------------------------------- #
             # left function evaluation
             # -------------------------------------------- #
@@ -206,7 +200,7 @@ class OptimizationProblem(object):
             
             # assign new design vector
             b0[k] -= db
-            self.basis.set_rho_vector(b0)
+            self.basis[basis_idx].set_rho_vector(b0)
             
             # initialize design monitors
             for m in self.objective_arguments:
@@ -228,7 +222,7 @@ class OptimizationProblem(object):
 
             # assign new design vector
             b0[k] += 2*db # central difference rule...
-            self.basis.set_rho_vector(b0)
+            self.basis[basis_idx].set_rho_vector(b0)
 
             # initialize design monitors
             for m in self.objective_arguments:

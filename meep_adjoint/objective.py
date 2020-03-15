@@ -3,9 +3,7 @@
 from abc import ABC, abstractmethod
 import numpy as np
 import meep as mp
-from autograd import elementwise_grad as egrad  # for functions that vectorize over inputs
 from .filter_source import FilteredSource
-from matplotlib import pyplot as plt
 
 class ObjectiveQuantitiy(ABC):
     @abstractmethod
@@ -16,6 +14,9 @@ class ObjectiveQuantitiy(ABC):
         return
     @abstractmethod
     def place_adjoint_source(self):
+        return
+    @abstractmethod
+    def __call__(self):
         return
 
 class EigenmodeCoefficient(ObjectiveQuantitiy):
@@ -72,7 +73,9 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
             src = self.time_src
             amp = scale
         else:
-            # Multifrequency simulations just use the desired frequency profile to generate the time profile.
+            # TODO: In theory we should be able drive the source without normalizing out the time profile.
+            # But for some reason, there is a frequency dependent scaling discrepency. It works now for 
+            # multiple monitors and multiple sources, but we should figure out why this is.
             src = FilteredSource(self.time_src.frequency,self.freqs,scale,dt,time,self.time_src) # generate source from braodband response
             amp = 1
         # generate source object
@@ -88,8 +91,7 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
         return self.source
 
     def __call__(self):
-        # For single frequency simulations, we just need a workable time profile. 
-        # so just grab the first available time profile and use that.
+        # We just need a workable time profile, so just grab the first available time profile and use that.
         self.time_src = self.sim.sources[0].src
 
         # Eigenmode data
@@ -99,8 +101,5 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
 
         # record all freqs of interest
         self.freqs = np.atleast_1d(mp.get_eigenmode_freqs(self.monitor))
-
-        # get f0 frequency index
-        self.fcen_idx = np.argmin(np.abs(self.freqs-self.fcen))
 
         return self.eval

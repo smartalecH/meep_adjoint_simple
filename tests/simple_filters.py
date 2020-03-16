@@ -1,16 +1,21 @@
 '''
-simple.py
+simple_filters.py
 '''
 
 import meep as mp
 import meep_adjoint as mpa
 import numpy as np
 import jax.numpy as npa
+from jax.config import config
+config.update("jax_enable_x64", True)
+from jax import grad, jit, vmap, lax
 from matplotlib import pyplot as plt
 from os import path
+from scipy import signal
+
 
 mp.quiet(quietval=True)
-load_from_file = True
+load_from_file = False
 
 #----------------------------------------------------------------------
 # Initial setup
@@ -53,8 +58,38 @@ Nx = 10
 Ny = 10
 
 design_region = mp.Volume(center=mp.Vector3(), size=mp.Vector3(1, 1, 0))
-rho_vector = 11*np.random.rand(Nx*Ny) + 1
-basis = mpa.BilinearInterpolationBasis(volume=design_region,Nx=Nx,Ny=Ny,rho_vector=rho_vector)
+rho_vector = np.random.rand(Nx*Ny)
+
+def scale(x):
+    return 11*x + 1
+
+def threshold(x):
+    sigma = 1000
+    return 1/(1 + npa.exp(-sigma*(x-npa.mean(x))))
+
+def smooth(x):
+    img = x.reshape(1,Nx,Ny,1)
+    length = 1
+    kernel = (np.outer(signal.gaussian(Nx, length), signal.gaussian(Ny, length))).reshape((Nx,Ny,1,1))
+    
+    dn = lax.conv_dimension_numbers(img.shape,     # only ndim matters, not shape
+                                kernel.shape,  # only ndim matters, not shape
+                                ('NHWC', 'HWIO', 'NHWC'))  # the important bit
+    
+    y = lax.conv_general_dilated(img,    # lhs = image tensor
+                               kernel, # rhs = conv kernel tensor
+                               (1,1),  # window strides
+                               'SAME', # padding mode
+                               (1,1),  # lhs/image dilation
+                               (1,1),  # rhs/kernel dilation
+                               dn)     # dimension_numbers = lhs, rhs, out dimension permutation
+    y = y.flatten()
+    return y
+
+def filter(x):
+    return scale(smooth(x))
+
+basis = mpa.BilinearInterpolationBasis(volume=design_region,Nx=Nx,Ny=Ny,rho_vector=rho_vector,filter=filter)
 
 geometry = [
     mp.Block(center=mp.Vector3(x=-Sx/4), material=mp.Medium(index=3.45), size=mp.Vector3(Sx/2, 0.5, 0)), # horizontal waveguide
@@ -68,7 +103,7 @@ sim = mp.Simulation(cell_size=cell_size,
                     sources=source,
                     eps_averaging=False,
                     resolution=resolution)
-
+                 
 #----------------------------------------------------------------------
 #- Objective quantities and objective function
 #----------------------------------------------------------------------
@@ -100,12 +135,13 @@ f0, g_adjoint = opt()
 #----------------------------------------------------------------------
 #- FD run
 #----------------------------------------------------------------------
+print("Performing finite differences...")
 db = 1e-3
 n = Nx*Ny
 choose = 20
 if mp.am_master():
-    if path.exists('simple_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny)) and load_from_file:
-        data = np.load('simple_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny))
+    if path.exists('simple_filters_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny)) and load_from_file:
+        data = np.load('simple_filters_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny))
         idx = data['idx']
         g_discrete = data['g_discrete']
 
@@ -132,7 +168,7 @@ if mp.am_master():
     plt.legend()
     plt.grid(True)
 
-    np.savez('simple_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny),g_discrete=g_discrete,g_adjoint=g_adjoint,idx=idx,m=m,b=b,resolution=resolution)
-    plt.savefig('simple_{}_seed_{}_Nx_{}_Ny_{}.png'.format(resolution,seed,Nx,Ny))
+    np.savez('simple_filters_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny),g_discrete=g_discrete,g_adjoint=g_adjoint,idx=idx,m=m,b=b,resolution=resolution)
+    plt.savefig('simple_filters_{}_seed_{}_Nx_{}_Ny_{}.png'.format(resolution,seed,Nx,Ny))
 
     plt.show()

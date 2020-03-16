@@ -1,8 +1,9 @@
-import numpy as np
 import meep as mp
-from autograd import numpy as npa
+import numpy as np
 from scipy import sparse
-from autograd import grad, jacobian, vector_jacobian_product
+#from autograd import grad, jacobian, vector_jacobian_product
+import jax.numpy as npa
+from jax import grad, vjp, jacrev
 #invoke python's 'abstract base class' formalism in a version-agnostic way
 from abc import ABCMeta, abstractmethod
 ABC = ABCMeta('ABC', (object,), {'__slots__': ()}) # compatible with Python 2 and 3
@@ -31,28 +32,24 @@ class Basis(ABC):
         # Chain rule for the material_mapping
         if self.material_mapping is None:
             # Propogate out the frequencies and components. Assume no dispersion, and assume isotropy.
-            # FIXME use tensordot instead...
-            # gradient = np.tensordot(d_E,a_E,axes=([1,0],[0,1]))
-            #N = frequency_scalar.size
-            dJ_deps = np.zeros((len(design_grid.x),len(design_grid.y),len(design_grid.z)))
-            for ix in range(len(design_grid.x)):
-                for iy in range(len(design_grid.y)):
-                    for iz in range(len(design_grid.z)):
-                        for ic in [2]:
-                            dJ_deps[ix,iy,iz] += 2 * np.sum(np.real(a_E[ix,iy,iz,ic,:] * d_E[ix,iy,iz,ic,:]))
+            dJ_deps = 2*np.sum(np.real(a_E*d_E),axis=(3,4)) # sum over components and frequencies
         else:
+            # FIXME implement material mapping 
             raise NotImplementedError("Material maps are not yet implemented")
         
         # Chain rule for the basis interpolator
         dJ_deps = dJ_deps.reshape(dJ_deps.size,order='C')
         dJ_dp = dJ_deps * self.get_basis_jacobian(design_grid)
         
-        # Chain rule for the filtering functions
+        # Chain rule for filtering functions
         # FIXME cleanup when no filter
         if self.filter is None:
             dJ_drho = dJ_dp
         else:
-            dJ_drho = np.matmul(jacobian(self.filter)(dJ_dp), dJ_dp)
+            #dJ_drho = np.matmul(jacobian(self.filter)(dJ_dp), dJ_dp)
+            #temp = np.matmul(jacrev(self.filter)(dJ_dp), dJ_dp)
+            _, f_vjp = vjp(self.filter,dJ_dp)
+            dJ_drho = np.squeeze(f_vjp(dJ_dp))
         return dJ_drho
     
     def func(self):

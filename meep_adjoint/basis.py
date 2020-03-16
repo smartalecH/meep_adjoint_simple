@@ -95,7 +95,7 @@ class BilinearInterpolationBasis(Basis):
         self.rho_y = np.linspace(self.volume.center.y - self.volume.size.y/2,self.volume.center.y + self.volume.size.y/2,Ny)
     
     def __call__(self, p):
-        weights, interp_idx = self.get_bilinear_row(p.x,p.y,self.rho_x,self.rho_y)
+        weights, interp_idx = self.get_bilinear_row(p.x,p.y,self.rho_x,self.rho_y) # ignore z coordinate
         return np.dot( self.rho_prime_vector[interp_idx], weights )                  
 
     def get_basis_jacobian(self,design_grid):

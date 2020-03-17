@@ -9,7 +9,7 @@ import jax.numpy as npa
 from matplotlib import pyplot as plt
 from os import path
 
-mp.quiet(quietval=True)
+#mp.quiet(quietval=True)
 load_from_file = True
 
 #----------------------------------------------------------------------
@@ -25,10 +25,10 @@ Sy = 5
 Sz = 2
 cell_size = mp.Vector3(Sx,Sy,Sz)
 
-pml_layers = [mp.PML(x=1.0),mp.PML(y=1.0),mp.PML(z=0.25)]
+pml_layers = [mp.PML(1.0,direction=mp.X),mp.PML(1.0,direction=mp.Y),mp.PML(0.5,direction=mp.Z)]
 
 time = 500
-
+thickness = 0.22
 #----------------------------------------------------------------------
 # Eigenmode source
 #----------------------------------------------------------------------
@@ -36,8 +36,8 @@ time = 500
 fcen = 1/1.55
 width = 0.2
 fwidth = width * fcen
-source_center  = [-1,0,0]
-source_size    = mp.Vector3(0,2,0)
+source_center  = [-2,0,0]
+source_size    = mp.Vector3(0,2,Sz)
 kpoint = mp.Vector3(1,0,0)
 src = mp.GaussianSource(frequency=fcen,fwidth=fwidth)
 source = [mp.EigenModeSource(src,
@@ -76,7 +76,7 @@ sim = mp.Simulation(cell_size=cell_size,
 #- Objective quantities and objective function
 #----------------------------------------------------------------------
 
-TE0 = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(0,1,0),size=mp.Vector3(x=2)),mode=1)
+TE0 = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(0,1,0),size=mp.Vector3(2,0,Sz)),mode=1)
 ob_list = [TE0]
 
 def J(alpha):

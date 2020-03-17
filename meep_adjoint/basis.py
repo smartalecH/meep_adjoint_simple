@@ -38,8 +38,9 @@ class Basis(ABC):
             raise NotImplementedError("Material maps are not yet implemented")
         
         # Chain rule for the basis interpolator
-        dJ_deps = dJ_deps.reshape(dJ_deps.size,order='C')
-        dJ_dp = dJ_deps * self.get_basis_jacobian(design_grid)
+        #dJ_deps = dJ_deps.reshape(dJ_deps.size,order='C')
+        #dJ_dp = dJ_deps * self.get_basis_jacobian(design_grid)
+        dJ_dp = self.get_basis_vjp(dJ_deps,design_grid)
         
         # Chain rule for filtering functions
         # FIXME cleanup when no filter
@@ -58,8 +59,8 @@ class Basis(ABC):
         return _f
 
     @abstractmethod
-    def get_basis_jacobian(self):
-        raise NotImplementedError("derived class must implement __call__() method")
+    def get_basis_vjp(self):
+        raise NotImplementedError("derived class must implement get_basis_vjp method")
     
     @abstractmethod
     def __call__(self, p=[0.0,0.0]):
@@ -98,12 +99,16 @@ class BilinearInterpolationBasis(Basis):
         weights, interp_idx = self.get_bilinear_row(p.x,p.y,self.rho_x,self.rho_y) # ignore z coordinate
         return np.dot( self.rho_prime_vector[interp_idx], weights )                  
 
-    def get_basis_jacobian(self,design_grid):
-        # get array of grid points that correspond to epsilon vector
-        #dj_deps = dj_deps.reshape(dj_deps.size,order='C')
-        A = self.gen_interpolation_matrix(self.rho_x,self.rho_y,np.array(design_grid.x),np.array(design_grid.y))
-        #return (eps.T * A).T
-        return A
+    def get_basis_vjp(self,dJ_deps,design_grid):
+        # get vector jacobian product
+        dg_Nx, dg_Ny, dg_Nz = len(design_grid.x), len(design_grid.y), len(design_grid.z)
+        Nx, Ny, Nz = self.rho_x.size, self.rho_y.size, dg_Nz
+        dJ_dp = np.zeros((Nx * Ny,))
+        A = self.gen_interpolation_matrix(self.rho_x,self.rho_y,np.array(design_grid.x),np.array(design_grid.y),np.array(design_grid.z))
+        for zi in range(Nz):
+            dJ_dp += dJ_deps[:,:,zi].reshape(dg_Nx * dg_Ny,order='C') * A
+        
+        return dJ_dp
     
     def get_bilinear_coefficients(self,x,x1,x2,y,y1,y2):
         '''
@@ -159,12 +164,13 @@ class BilinearInterpolationBasis(Basis):
         weights = self.get_bilinear_coefficients(rx,x1,x2,ry,y1,y2)
         
         # get location of nearest neigbor interpolation points
+        # FIXME get correct idxes for multiple z stacks
         interp_idx = np.array([xi1*Nx+yi1,xi1*Nx+yi2,(xi2)*Nx+yi1,(xi2)*Nx+yi2],dtype=np.int64)
 
         return weights, interp_idx
 
 
-    def gen_interpolation_matrix(self,rho_x,rho_y,rho_x_interp,rho_y_interp):
+    def gen_interpolation_matrix(self,rho_x,rho_y,rho_x_interp,rho_y_interp,rho_z_interp):
         '''
         Generates a bilinear interpolation matrix.
         
@@ -182,6 +188,7 @@ class BilinearInterpolationBasis(Basis):
         Ny = rho_y.size
         Nx_interp = np.array(rho_x_interp).size
         Ny_interp = np.array(rho_y_interp).size
+        Nz_interp = np.array(rho_y_interp).size
 
         input_dimension = Nx * Ny
         output_dimension = Nx_interp * Ny_interp

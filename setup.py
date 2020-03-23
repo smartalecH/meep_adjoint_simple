@@ -16,4 +16,8 @@ setup(name='meep_adjoint',
       author_email='homer@homerreid.com',
       url='http://github.com/homerreid/meep_adjoint',
       license=license,
+      install_requires=[
+        'jax',
+        'jaxlib'
+        ]
       packages=['meep_adjoint'])

@@ -39,6 +39,7 @@ class OptimizationProblem(object):
         self.basis = basis
         self.design_regions = [dr.volume for dr in self.basis]
         self.num_bases = len(self.basis)
+        self.f_bank = [] # objective function history
         
         self.fcen = fcen
         self.df = df
@@ -56,21 +57,13 @@ class OptimizationProblem(object):
         self.num_design_params = [ni.num_design_params for ni in self.basis]
         
         # store sources for finite difference estimations
-        self.forward_sources = self.sim.sources     
+        self.forward_sources = self.sim.sources
 
-        # --------------------------------------------------------- #
-        # Prepare forward run
-        # --------------------------------------------------------- #
-
-        # register user specified monitors
-        for m in self.objective_arguments:
-            m.register_monitors(self.fcen,self.df,self.nf)
-
-        # register design region
-        self.design_region_monitors = [self.sim.add_dft_fields([mp.Ex,mp.Ey,mp.Ez],self.freq_min,self.freq_max,self.nf,where=dr,yee_grid=False) for dr in self.design_regions]
-
-        # store design region voxel parameters
-        self.design_grids = [Grid(*self.sim.get_array_metadata(dft_cell=drm)) for drm in self.design_region_monitors]
+        # The optimizer has three allowable states : "INIT", "FWD", and "ADJ".
+        #    INIT - The optimizer is initialized and ready to run a forward simulation
+        #    FWD  - The optimizer has already run a forward simulation
+        #    ADJ  - The optimizer has already run an adjoint simulation (but not yet calculated the gradient)
+        self.current_state = "INIT"
 
     def __call__(self, rho_vector=None, need_value=True, need_gradient=True):
         """Evaluate value and/or gradient of objective function.
@@ -78,19 +71,29 @@ class OptimizationProblem(object):
         if rho_vector is not None:
             self.update_design(rho_vector=rho_vector)
 
-        # Run forward run
-        # FIXME check if we actually need a forward run
-        print("Starting forward run...")
-        self.forward_run()
+        # Run forward run if requested
+        if need_value and self.current_state == "INIT": 
+            print("Starting forward run...")
+            self.forward_run()
 
-        # Run adjoint simulation
-        # FIXME check if we actually need an adjoint run
-        print("Starting adjoint run...")
-        self.adjoint_run()
-
-        # calculate gradient
-        print("Calculating gradient...")
-        self.calculate_gradient()
+        # Run adjoint simulation and calculate gradient if requested
+        if need_gradient:
+            if self.current_state == "INIT":
+                # we need to run a forward run before an adjoint run
+                print("Starting forward run...")
+                self.forward_run()
+                print("Starting adjoint run...")
+                self.adjoint_run()
+                print("Calculating gradient...")
+                self.calculate_gradient()
+            elif self.current_state == "FWD":
+                print("Starting adjoint run...")
+                self.adjoint_run()
+                print("Calculating gradient...")
+                self.calculate_gradient()
+            else:
+                raise ValueError("Incorrect solver state detected: {}".format(self.current_state))
+        
         return (self.f0, self.gradient[0]) if len(self.gradient) == 1 else (self.f0, self.gradient)
 
     def get_fdf_funcs(self):
@@ -104,16 +107,35 @@ class OptimizationProblem(object):
         """
 
         def _f(x=None):
-            (fq, _) = self.__call__(beta_vector = x, need_gradient = False)
-            return fq[0]
+            (fq, _) = self.__call__(rho_vector = x, need_gradient = False)
+            return fq
 
         def _df(x=None):
             (_, df) = self.__call__(need_value = False)
             return df
 
         return _f, _df
+    
+    def prepare_forward_run(self):
+        # prepare forward run
+        self.sim.reset_meep()
+
+        # add forward sources
+        self.sim.change_sources(self.forward_sources)
+
+        # register user specified monitors
+        for m in self.objective_arguments:
+            m.register_monitors(self.fcen,self.df,self.nf)
+
+        # register design region
+        self.design_region_monitors = [self.sim.add_dft_fields([mp.Ex,mp.Ey,mp.Ez],self.freq_min,self.freq_max,self.nf,where=dr,yee_grid=False) for dr in self.design_regions]
+
+        # store design region voxel parameters
+        self.design_grids = [Grid(*self.sim.get_array_metadata(dft_cell=drm)) for drm in self.design_region_monitors]
 
     def forward_run(self):
+        # set up monitors
+        self.prepare_forward_run()
 
         # Forward run
         self.sim.run(until=self.time)
@@ -133,6 +155,12 @@ class OptimizationProblem(object):
             for f in range(self.nf):
                 for ic, c in enumerate([mp.Ex,mp.Ey,mp.Ez]):
                     self.d_E[nb][:,:,:,ic,f] = np.atleast_3d(self.sim.get_dft_array(dgm,c,f))
+
+        # store objective function evaluation in memory
+        self.f_bank.append(self.f0)
+
+        # update solver's current state
+        self.current_state = "FWD"
 
     def adjoint_run(self):
         # Grab the simulation step size from the forward run
@@ -168,10 +196,16 @@ class OptimizationProblem(object):
         # store frequencies (will be same for all monitors)
         self.frequencies = np.array(mp.get_flux_freqs(self.design_region_monitors[0]))
 
+        # update optimizer's state
+        self.current_state = "ADJ"
+
     def calculate_gradient(self):
         # Iterate through all design region bases
         self.gradient = [self.basis[nb].gradient(self.d_E[nb], self.a_E[nb], self.design_grids[nb]) for nb in range(self.num_bases)]
-
+        
+        # Return optimizer's state to initialization
+        self.current_state = "INIT"
+    
     def calculate_fd_gradient(self,num_gradients=1,db=1e-4,basis_idx=0):
         '''
         Estimate central difference gradients.
@@ -248,25 +282,20 @@ class OptimizationProblem(object):
     def update_design(self, rho_vector):
         """Update the design permittivity function.
         """
-        self.basis.set_rho_vector(rho_vector)
+        #FIXME allow multiple rhovectors for multiple bases
+        for b in self.basis:
+            b.set_rho_vector(rho_vector)
 
-    def visualize(self, id=None, pmesh=False):
+    def plot2D(self,init_opt=False, **kwargs):
         """Produce a graphical visualization of the geometry and/or fields,
            as appropriately autodetermined based on the current state of
            progress.
         """
-        
-        if self.stepper.state=='reset':
-            self.stepper.prepare('forward')
 
-        bs = self.basis
-        mesh = bs.fs.mesh() if (hasattr(bs,'fs') and hasattr(bs.fs,'mesh')) else None
+        if init_opt:
+            self.prepare_forward_run()
 
-        fig = plt.figure(num=id) if id else None
-
-        self.sim.plot2D()
-        if mesh is not None and pmesh:
-            plot_mesh(mesh)
+        self.sim.plot2D(**kwargs)
 
 def plot_mesh(mesh,lc='g',lw=1):
     """Helper function. Invoke FENICS/dolfin plotting routine to plot FEM mesh"""

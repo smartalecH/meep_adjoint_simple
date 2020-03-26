@@ -1,21 +1,16 @@
 '''
-simple_filters.py
+simple_material.py
 '''
 
 import meep as mp
 import meep_adjoint as mpa
 import numpy as np
 import jax.numpy as npa
-from jax.config import config
-config.update("jax_enable_x64", True)
-from jax import grad, jit, vmap, lax
 from matplotlib import pyplot as plt
 from os import path
-from scipy import signal, special
-
 
 mp.quiet(quietval=True)
-load_from_file = False
+load_from_file = True
 
 #----------------------------------------------------------------------
 # Initial setup
@@ -54,34 +49,34 @@ source = [mp.EigenModeSource(src,
 #- geometric objects
 #----------------------------------------------------------------------
 
-Nx = 100
-Ny = 100
+Nx = 10
+Ny = 10
 
 design_region = mp.Volume(center=mp.Vector3(), size=mp.Vector3(1, 1, 0))
-rho_vector = np.random.rand(Nx*Ny)
+rho_vector = 11*np.random.rand(Nx*Ny) + 1
 
-def scale(x):
-    return 11*x + 1
+def material_map(sigma):
+    sigma_Si = sigma
+    cSi_range = mp.FreqRange(min=um_scale, max=um_scale/0.4)
 
-# Filter parameters
-sigma = 8
-delta = 0
-eta = 0.5 -  special.erf(delta/sigma)
-beta = 128
-kernel = np.outer(signal.gaussian(Nx, sigma), signal.gaussian(Ny, sigma)) # Gaussian filter kernel
-kernel_fft = np.fft.fft2(kernel / np.sum(kernel.flatten())) # Normalize response and get freq response
-def smooth(x):
-    return npa.real(npa.fft.ifft2(npa.fft.fft2(x.reshape((Nx,Ny)))*kernel_fft).flatten())
+    cSi_frq1 = 3.64/um_scale
+    cSi_gam1 = 0
+    cSi_sig1 = 8
+    cSi_frq2 = 2.76/um_scale
+    cSi_gam2 = 2*0.063/um_scale
+    cSi_sig2 = 2.85
+    cSi_frq3 = 1.73/um_scale
+    cSi_gam3 = 2*2.5/um_scale
+    cSi_sig3 = -0.107
 
-def projection(rho_tilda):
-    case1 = eta*npa.exp(-beta*(eta-rho_tilda)/eta) - (eta-rho_tilda)*npa.exp(-beta)
-    case2 = 1 - (1-eta)*eta*npa.exp(-beta*(rho_tilda-eta)/(1-eta)) - (eta-rho_tilda)*npa.exp(-beta)
-    return npa.where(rho_tilda < eta,case1,case2)
-    
-def filter(x):
-    return scale(projection(smooth(x)))
+    cSi_susc = [mp.LorentzianSusceptibility(frequency=cSi_frq1, gamma=cSi_gam1, sigma=cSi_sig1*sigma_Si),
+                mp.LorentzianSusceptibility(frequency=cSi_frq2, gamma=cSi_gam2, sigma=cSi_sig2*sigma_Si),
+                mp.LorentzianSusceptibility(frequency=cSi_frq3, gamma=cSi_gam3, sigma=cSi_sig3*sigma_Si)]
 
-basis = mpa.BilinearInterpolationBasis(volume=design_region,Nx=Nx,Ny=Ny,rho_vector=rho_vector,filter=filter)
+    cSi = mp.Medium(epsilon=1.0, E_susceptibilities=cSi_susc, valid_freq_range=cSi_range)
+    return cSi
+sample_mat = material_map
+basis = mpa.BilinearInterpolationBasis(volume=design_region,Nx=Nx,Ny=Ny,rho_vector=rho_vector)
 
 geometry = [
     mp.Block(center=mp.Vector3(x=-Sx/4), material=mp.Medium(index=3.45), size=mp.Vector3(Sx/2, 0.5, 0)), # horizontal waveguide
@@ -127,13 +122,12 @@ f0, g_adjoint = opt()
 #----------------------------------------------------------------------
 #- FD run
 #----------------------------------------------------------------------
-print("Performing finite differences...")
 db = 1e-3
 n = Nx*Ny
 choose = 20
 if mp.am_master():
-    if path.exists('simple_filters_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny)) and load_from_file:
-        data = np.load('simple_filters_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny))
+    if path.exists('simple_material_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny)) and load_from_file:
+        data = np.load('simple_material_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny))
         idx = data['idx']
         g_discrete = data['g_discrete']
 
@@ -160,7 +154,7 @@ if mp.am_master():
     plt.legend()
     plt.grid(True)
 
-    np.savez('simple_filters_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny),g_discrete=g_discrete,g_adjoint=g_adjoint,idx=idx,m=m,b=b,resolution=resolution)
-    plt.savefig('simple_filters_{}_seed_{}_Nx_{}_Ny_{}.png'.format(resolution,seed,Nx,Ny))
+    np.savez('simple_material_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny),g_discrete=g_discrete,g_adjoint=g_adjoint,idx=idx,m=m,b=b,resolution=resolution)
+    plt.savefig('simple_material_{}_seed_{}_Nx_{}_Ny_{}.png'.format(resolution,seed,Nx,Ny))
 
     plt.show()

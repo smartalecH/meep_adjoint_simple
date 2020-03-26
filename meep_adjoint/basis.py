@@ -37,9 +37,7 @@ class Basis(ABC):
             # FIXME implement material mapping 
             raise NotImplementedError("Material maps are not yet implemented")
         
-        # Chain rule for the basis interpolator
-        #dJ_deps = dJ_deps.reshape(dJ_deps.size,order='C')
-        #dJ_dp = dJ_deps * self.get_basis_jacobian(design_grid)
+        # Chain rule vector jacobian product for the basis interpolator
         dJ_dp = self.get_basis_vjp(dJ_deps,design_grid)
         
         # Chain rule for filtering functions
@@ -164,8 +162,7 @@ class BilinearInterpolationBasis(Basis):
         weights = self.get_bilinear_coefficients(rx,x1,x2,ry,y1,y2)
         
         # get location of nearest neigbor interpolation points
-        # FIXME get correct idxes for multiple z stacks
-        interp_idx = np.array([xi1*Nx+yi1,xi1*Nx+yi2,(xi2)*Nx+yi1,(xi2)*Nx+yi2],dtype=np.int64)
+        interp_idx = np.array([xi1*Ny+yi1,xi1*Ny+yi2,(xi2)*Ny+yi1,(xi2)*Ny+yi2],dtype=np.int64)
 
         return weights, interp_idx
 

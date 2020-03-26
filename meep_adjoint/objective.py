@@ -65,13 +65,14 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
         # -------------------------------------- #
         # Get scaling factor 
         # -------------------------------------- #
+        # Determine the correct resolution scale factor
         if self.sim.cell_size.y == 0:
             dV = 1/self.sim.resolution
         elif self.sim.cell_size.z == 0:
             dV = 1/self.sim.resolution * 1/self.sim.resolution
         else:
             dV = 1/self.sim.resolution * 1/self.sim.resolution * 1/self.sim.resolution
-        da_dE = 0.5*(dV * self.cscale) 
+        da_dE = 0.5*(dV * self.cscale)
         scale = da_dE * dJ * 1j * 2 * np.pi * self.freqs / np.array([self.time_src.fourier_transform(f) for f in self.freqs]) # final scale factor
         
         if self.freqs.size == 1:

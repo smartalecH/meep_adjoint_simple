@@ -1,12 +1,15 @@
 '''
-simple_broadband.py
+simple_optimization.py
 '''
+
 import meep as mp
 import meep_adjoint as mpa
 import numpy as np
 import jax.numpy as npa
 from matplotlib import pyplot as plt
 from os import path
+from scipy import optimize
+import nlopt
 
 mp.quiet(quietval=True)
 load_from_file = True
@@ -17,7 +20,6 @@ load_from_file = True
 
 seed = 24
 np.random.seed(seed)
-nf = 120
 resolution = 10
 
 Sx = 6
@@ -35,7 +37,7 @@ time = 500
 fcen = 1/1.55
 width = 0.2
 fwidth = width * fcen
-source_center  = [-1,0,0]
+source_center  = [-1.5,0,0]
 source_size    = mp.Vector3(0,2,0)
 kpoint = mp.Vector3(1,0,0)
 src = mp.GaussianSource(frequency=fcen,fwidth=fwidth)
@@ -72,70 +74,53 @@ sim = mp.Simulation(cell_size=cell_size,
 #----------------------------------------------------------------------
 #- Objective quantities and objective function
 #----------------------------------------------------------------------
+mode = 1
+TE0 = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(x=-1),size=mp.Vector3(y=1.5)),mode)
+TE_top = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(0,1,0),size=mp.Vector3(x=1.5)),mode)
+ob_list = [TE0,TE_top]
 
-TE0 = mpa.EigenmodeCoefficient(sim,mp.Volume(center=mp.Vector3(0,1,0),size=mp.Vector3(x=2)),mode=1)
-ob_list = [TE0]
-
-def J(alpha):
-    return npa.sum(npa.abs(alpha) ** 2)
+def J(input,top):
+    return npa.abs(top/input) ** 2
 
 #----------------------------------------------------------------------
 #- Define optimization problem
 #----------------------------------------------------------------------
 opt = mpa.OptimizationProblem(
-    simulation = sim,
-    objective_function = J,
-    objective_arguments = ob_list,
-    basis = [basis],
-    fcen = fcen,
-    df = fwidth,
-    nf = nf,
-    time = time
+    simulation=sim,
+    objective_function=J,
+    objective_arguments=ob_list,
+    basis=[basis],
+    fcen=fcen,
+    time=time
 )
 
 #----------------------------------------------------------------------
-#- Get gradient
+#- Get gradient funcs
 #----------------------------------------------------------------------
+def fj(x,grad):
+    f, gt = opt(x)
+    if grad.size > 0:
+        grad[:] = gt
+    print("eval: ",min(x),max(x),f)
+    return float(f)
+algorithm = nlopt.G_MLSL_LDS
+local_algorithm = nlopt.LD_SLSQP
+opt_alg = nlopt.opt(local_algorithm, int(Nx*Ny))
+local_opt = nlopt.opt(local_algorithm, int(Nx*Ny))
+local_opt.set_maxeval(12)
+opt_alg.set_ftol_rel(1e-4)
+#opt_alg.set_local_optimizer(local_opt)
+opt_alg.set_max_objective(fj)
+opt_alg.set_lower_bounds(1)
+opt_alg.set_upper_bounds(12)
+opt_alg.set_maxeval(50)
+xopt = opt_alg.optimize(rho_vector)
 
-f0, g_adjoint = opt()
+plt.figure()
+plt.plot(np.array(opt.f_bank),'o-')
 
-#----------------------------------------------------------------------
-#- FD run
-#----------------------------------------------------------------------
-db = 1e-3
-n = Nx*Ny
-choose = 20
-if mp.am_master():
-    if path.exists('simple_broadband_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny)) and load_from_file:
-        data = np.load('simple_broadband_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny))
-        idx = data['idx']
-        g_discrete = data['g_discrete']
-
-    else:
-        g_discrete, idx = opt.calculate_fd_gradient(num_gradients=choose,db=db)
-
-    print("Chosen indices: ",idx)
-    print("adjoint method: {}".format(g_adjoint[idx]))
-    print("discrete method: {}".format(g_discrete[idx]))
-    print("ratio: {}".format(g_adjoint[idx]/g_discrete[idx]))
-
-    (m, b) = np.polyfit(g_discrete, g_adjoint, 1)
-    print("slope: {}".format(m))
-
-    min = np.min(g_discrete)
-    max = np.max(g_discrete)
-
-    plt.figure()
-    plt.plot([min, max],[min, max],label='y=x comparison')
-    plt.plot(g_discrete[idx],g_adjoint[idx],'o',label='Adjoint comparison')
-    plt.xlabel('Finite Difference Gradient')
-    plt.ylabel('Adjoint Gradient')
-    plt.title('Resolution: {} Seed: {} Nx: {} Ny: {}'.format(resolution,seed,Nx,Ny))
-    plt.legend()
-    plt.grid(True)
+plt.figure()
+opt.plot2D()
+plt.show()
 
 
-    np.savez('simple_broadband_{}_seed_{}_Nx_{}_Ny_{}.npz'.format(resolution,seed,Nx,Ny),g_discrete=g_discrete,g_adjoint=g_adjoint,idx=idx,m=m,b=b,resolution=resolution)
-    plt.savefig('simple_broadband_{}_seed_{}_Nx_{}_Ny_{}.png'.format(resolution,seed,Nx,Ny))
-
-    plt.show()

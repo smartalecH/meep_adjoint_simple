@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 import numpy as np
 import meep as mp
 from .filter_source import FilteredSource
+from matplotlib import pyplot as plt
 
 class ObjectiveQuantitiy(ABC):
     @abstractmethod
@@ -43,11 +44,10 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
         self.normal_direction = self.monitor.normal_direction
         return self.monitor
     
-    def place_adjoint_source(self,dJ,dt,time):
+    def place_adjoint_source(self,dJ,dt):
         '''
         dJ ........ the user needs to pass the dJ/dMonitor evaluation
         dt ........ the timestep size from sim.fields.dt of the forward sim
-        time ...... the forward simulation time in meeep units
         '''
         dJ = np.atleast_1d(dJ)
         # determine starting kpoint for reverse mode eigenmode source
@@ -65,6 +65,10 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
         # -------------------------------------- #
         # Get scaling factor 
         # -------------------------------------- #
+        # combine source for multi-output objective functions (i.e. multiple frequencies)
+        if dJ.ndim == 2:
+            dJ = np.sum(dJ,axis=1)
+        
         # Determine the correct resolution scale factor
         if self.sim.cell_size.y == 0:
             dV = 1/self.sim.resolution
@@ -74,7 +78,6 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
             dV = 1/self.sim.resolution * 1/self.sim.resolution * 1/self.sim.resolution
         da_dE = 0.5*(dV * self.cscale)
         scale = da_dE * dJ * 1j * 2 * np.pi * self.freqs / np.array([self.time_src.fourier_transform(f) for f in self.freqs]) # final scale factor
-        
         if self.freqs.size == 1:
             # Single frequency simulations. We need to drive it with a time profile.
             src = self.time_src
@@ -83,7 +86,7 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
             # TODO: In theory we should be able drive the source without normalizing out the time profile.
             # But for some reason, there is a frequency dependent scaling discrepency. It works now for 
             # multiple monitors and multiple sources, but we should figure out why this is.
-            src = FilteredSource(self.time_src.frequency,self.freqs,scale,dt,time,self.time_src) # generate source from braodband response
+            src = FilteredSource(self.time_src.frequency,self.freqs,scale,dt,self.time_src) # generate source from braodband response
             amp = 1
         # generate source object
         self.source = mp.EigenModeSource(src,

@@ -2,8 +2,8 @@ import meep as mp
 import numpy as np
 from scipy import sparse
 #from autograd import grad, jacobian, vector_jacobian_product
-import jax.numpy as npa
-from jax import grad, vjp, jacrev
+import autograd.numpy as npa
+from autograd import grad, jacobian
 #invoke python's 'abstract base class' formalism in a version-agnostic way
 from abc import ABCMeta, abstractmethod
 ABC = ABCMeta('ABC', (object,), {'__slots__': ()}) # compatible with Python 2 and 3
@@ -16,40 +16,9 @@ class Basis(ABC):
     """
     """
 
-    def __init__(self, rho_vector, volume=None, size=None, center=mp.Vector3(), filter=None, material_mapping=None):
+    def __init__(self, rho_vector, volume=None, size=None, center=mp.Vector3()):
         self.volume = volume if volume else mp.Volume(center=center,size=size)
-        self.filter = filter
         self.rho_vector = rho_vector
-        self.rho_prime_vector = rho_vector if self.filter is None else self.filter(rho_vector)
-
-        #TODO implment material_mapping
-        self.material_mapping=material_mapping
-    
-    def gradient(self,d_E,a_E,design_grid):
-        '''
-        '''
-
-        # Chain rule for the material_mapping
-        if self.material_mapping is None:
-            # Propogate out the frequencies and components. Assume no dispersion, and assume isotropy.
-            dJ_deps = 2*np.sum(np.real(a_E*d_E),axis=(3,4)) # sum over components and frequencies
-        else:
-            # FIXME implement material mapping 
-            raise NotImplementedError("Material maps are not yet implemented")
-        
-        # Chain rule vector jacobian product for the basis interpolator
-        dJ_dp = self.get_basis_vjp(dJ_deps,design_grid)
-        
-        # Chain rule for filtering functions
-        # FIXME cleanup when no filter
-        if self.filter is None:
-            dJ_drho = dJ_dp
-        else:
-            #dJ_drho = np.matmul(jacobian(self.filter)(dJ_dp), dJ_dp)
-            #temp = np.matmul(jacrev(self.filter)(dJ_dp), dJ_dp)
-            _, f_vjp = vjp(self.filter,dJ_dp)
-            dJ_drho = np.squeeze(f_vjp(dJ_dp))
-        return dJ_drho
     
     def func(self):
         def _f(p): 
@@ -66,7 +35,6 @@ class Basis(ABC):
 
     def set_rho_vector(self, rho_vector):
         self.rho_vector = rho_vector
-        self.rho_prime_vector = rho_vector if self.filter is None else self.filter(rho_vector)
 
 # -------------------------------- #
 # Bilinear Interpolation Basis class
@@ -95,17 +63,21 @@ class BilinearInterpolationBasis(Basis):
     
     def __call__(self, p):
         weights, interp_idx = self.get_bilinear_row(p.x,p.y,self.rho_x,self.rho_y) # ignore z coordinate
-        return np.dot( self.rho_prime_vector[interp_idx], weights )                  
+        return np.dot( self.rho_vector[interp_idx], weights )                  
 
     def get_basis_vjp(self,dJ_deps,design_grid):
-        # get vector jacobian product
-        dg_Nx, dg_Ny, dg_Nz = len(design_grid.x), len(design_grid.y), len(design_grid.z)
-        Nx, Ny, Nz = self.rho_x.size, self.rho_y.size, dg_Nz
-        dJ_dp = np.zeros((Nx * Ny,))
-        A = self.gen_interpolation_matrix(self.rho_x,self.rho_y,np.array(design_grid.x),np.array(design_grid.y),np.array(design_grid.z))
-        for zi in range(Nz):
-            dJ_dp += dJ_deps[:,:,zi].reshape(dg_Nx * dg_Ny,order='C') * A
+        ''' get vector jacobian product of interpolator'''
         
+        dg_Nx, dg_Ny, Nz, Nf = dJ_deps.shape # get important design grid dimensions
+        Nx, Ny = self.rho_x.size, self.rho_y.size # get important interpolator dimensions
+        
+        # same interpolation matrix for all frequencies and all coordinates in Z direction
+        A = self.gen_interpolation_matrix(self.rho_x,self.rho_y,np.array(design_grid.x),np.array(design_grid.y),np.array(design_grid.z))
+        # TODO ditch the for loops
+        dJ_dp = np.zeros((Nx * Ny,Nf))
+        for fi in range(Nf):
+            for zi in range(Nz):
+                dJ_dp[:,fi] += dJ_deps[:,:,zi,fi].reshape(dg_Nx * dg_Ny,order='C') * A
         return dJ_dp
     
     def get_bilinear_coefficients(self,x,x1,x2,y,y1,y2):

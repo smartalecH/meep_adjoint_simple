@@ -2,25 +2,27 @@ import meep as mp
 import numpy as np
 from scipy import signal, linalg
 from meep import CustomSource
-import matplotlib.pyplot as plt
-from scipy.interpolate import Rbf, PchipInterpolator
-from scipy.special import erf
 
 class FilteredSource(CustomSource):
-    def __init__(self,center_frequency,frequencies,frequency_response,dt,T,time_src=None):
+    def __init__(self,center_frequency,frequencies,frequency_response,dt,time_src=None):
         dt = dt/2 # divide by two to compensate for staggered E,H time interval
         self.dt = dt
         df = frequencies[1]-frequencies[0]
         self.frequencies=frequencies
-        self.center_frequencies=frequencies
-        self.T = T
+        self.center_frequencies = frequencies
+
+        # For now, the basis functions cannot overlap much in the frequency domain. Otherwise, the
+        # resulting nodes are wildly large and induce numerical precision errors. We can always 
+        # produce a safe simulation by forcing the length of each basis function to meet the minimum
+        # frequency requirements. This method still minimizes storage requirements.
+        self.T = 1/np.diff(frequencies)[0]
         self.N = np.rint(self.T/self.dt)
         self.t = np.arange(0,dt*(self.N),dt)
         self.n = np.arange(self.N)
         f = self.func()
         
         if time_src:
-            # calculate dtft of input signal
+            # get the cutoff of the input signal
             signal_t = np.array([time_src.swigobj.current(ti,dt) for ti in self.t]) # time domain signal
             signal_dtft = self.dtft(signal_t,self.frequencies)       
         else:
@@ -33,7 +35,7 @@ class FilteredSource(CustomSource):
         self.nodes, self.err = self.estimate_impulse_response(H)  
 
         # initialize super
-        super(FilteredSource, self).__init__(src_func=f,center_frequency=center_frequency,is_integrated=False)
+        super(FilteredSource, self).__init__(src_func=f,center_frequency=center_frequency,is_integrated=False,end_time=self.T)
 
     def cos_window_td(self,a,t,f0):
         cos_sum = np.sum([(-1)**k * a[k] * np.cos(2*np.pi*t*k/self.T )for k in range(len(a))],axis=0)
@@ -61,7 +63,7 @@ class FilteredSource(CustomSource):
     def nuttall(self,t,f0):
         a = [0.355768, 0.4873960, 0.144232, 0.012604]
         return self.cos_window_td(a,t,f0)
-    def nutall_dtft(self,f,f0):
+    def nuttall_dtft(self,f,f0):
         a = [0.355768, 0.4873960, 0.144232, 0.012604]
         return self.cos_window_fd(a,f,f0)
     def dtft(self,y,f):
@@ -77,15 +79,11 @@ class FilteredSource(CustomSource):
         return _f
     
     def estimate_impulse_response(self,H):
-        # Use vandermonde matrix to calculate weights of each gaussian. Each sinc is centered at each frequency point.
+        # Use vandermonde matrix to calculate weights of each gaussian. Each window is centered at each frequency point.
         # TODO: come up with a more sophisticated way to choose temporal window size and basis locations
         # that will minimize l2 estimation error and the node weights (since matrix is ill-conditioned)
-        vandermonde = self.nutall_dtft(self.frequencies[:,np.newaxis],self.center_frequencies[np.newaxis,:])
-        '''lu, piv = linalg.lu_factor(vandermonde)
-        nodes = linalg.lu_solve((lu, piv), H)'''
-        nodes = np.linalg.pinv(vandermonde)@H
+        vandermonde = self.nuttall_dtft(self.frequencies[:,np.newaxis],self.center_frequencies[np.newaxis,:])
+        nodes = linalg.pinv(vandermonde)@H
         H_hat = vandermonde@nodes
-        l2_err = np.sum(np.abs(H-H_hat)**2/np.abs(H)**2)
-        print("relative l2 err: ", l2_err)
-        
+        l2_err = np.sum(np.abs(H-H_hat)**2/np.abs(H)**2)        
         return nodes, l2_err

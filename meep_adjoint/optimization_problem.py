@@ -1,7 +1,7 @@
 import meep as mp
 import numpy as np
-import jax.numpy as npa
-from jax import grad, jit, vmap
+import autograd.numpy as npa
+from autograd import grad, jacobian
 from collections import namedtuple
 
 Grid = namedtuple('Grid', ['x', 'y', 'z', 'w'])
@@ -30,7 +30,9 @@ class OptimizationProblem(object):
                 fcen,
                 df=0,
                 nf=1,
-                time=1200
+                decay_dt=50,
+                decay_fields=[mp.Ez],
+                decay_by=1e-6
                  ):
 
         self.sim = simulation
@@ -47,13 +49,10 @@ class OptimizationProblem(object):
         self.freq_min = self.fcen - self.df/2
         self.freq_max = self.fcen + self.df/2
 
-        # TODO add dynamic method that checks for convergence
-        if nf > 1:
-            T_dtft_min = 1/(df/nf)
-            if T_dtft_min > time:
-                print("Warning: the adjoint simulation will need more time to run than specified with the given frequency density. The runtime has been appropriately increased.")
-                time = T_dtft_min
-        self.time=time
+        self.decay_by=decay_by
+        self.decay_fields=decay_fields
+        self.decay_dt=decay_dt
+
         self.num_design_params = [ni.num_design_params for ni in self.basis]
         
         # store sources for finite difference estimations
@@ -94,7 +93,7 @@ class OptimizationProblem(object):
             else:
                 raise ValueError("Incorrect solver state detected: {}".format(self.current_state))
         
-        return (self.f0, self.gradient[0]) if len(self.gradient) == 1 else (self.f0, self.gradient)
+        return self.f0, self.gradient, self.design_grids
 
     def get_fdf_funcs(self):
         """construct callable functions for objective function value and gradient
@@ -128,7 +127,7 @@ class OptimizationProblem(object):
             m.register_monitors(self.fcen,self.df,self.nf)
 
         # register design region
-        self.design_region_monitors = [self.sim.add_dft_fields([mp.Ex,mp.Ey,mp.Ez],self.freq_min,self.freq_max,self.nf,where=dr,yee_grid=False) for dr in self.design_regions]
+        self.design_region_monitors = [self.sim.add_dft_fields([mp.Ex,mp.Ey,mp.Ez],self.fcen,self.df,self.nf,where=dr,yee_grid=False) for dr in self.design_regions]
 
         # store design region voxel parameters
         self.design_grids = [Grid(*self.sim.get_array_metadata(dft_cell=drm)) for drm in self.design_region_monitors]
@@ -137,8 +136,11 @@ class OptimizationProblem(object):
         # set up monitors
         self.prepare_forward_run()
 
+        # add monitor used to track dft convergence
+        mdft = self.sim.add_dft_fields(self.decay_fields,self.fcen,self.df,1,center=self.design_regions[0].center,size=mp.Vector3(1/self.sim.resolution))
+
         # Forward run
-        self.sim.run(until=self.time)
+        self.sim.run(until_after_sources=stop_when_dft_decayed(mdft, self.decay_dt, self.decay_fields, self.fcen, self.decay_by))
 
         # record objective quantities from user specified monitors
         self.results_list = []
@@ -172,18 +174,19 @@ class OptimizationProblem(object):
         # Replace sources with adjoint sources
         self.adjoint_sources = []
         for mi, m in enumerate(self.objective_arguments):
-            dJ = grad(self.objective_function,mi)(*self.results_list) # get gradient of objective w.r.t. monitor
-            self.adjoint_sources.append(m.place_adjoint_source(dJ,self.dt,self.time)) # place the appropriate adjoint sources
+            dJ = jacobian(self.objective_function,mi)(*self.results_list) # get gradient of objective w.r.t. monitor
+            self.adjoint_sources.append(m.place_adjoint_source(dJ,self.dt)) # place the appropriate adjoint sources
         self.sim.change_sources(self.adjoint_sources)
 
         # reregsiter design flux
-        # FIXME cleanup design region input
         # TODO use yee grid directly 
-        self.design_region_monitors = [self.sim.add_dft_fields([mp.Ex,mp.Ey,mp.Ez],self.freq_min,self.freq_max,self.nf,where=dr,yee_grid=False) for dr in self.design_regions]
+        self.design_region_monitors = [self.sim.add_dft_fields([mp.Ex,mp.Ey,mp.Ez],self.fcen,self.df,self.nf,where=dr,yee_grid=False) for dr in self.design_regions]
+
+        # add monitor used to track dft convergence
+        mdft = self.sim.add_dft_fields(self.decay_fields,self.fcen,self.df,1,center=self.design_regions[0].center,size=mp.Vector3(1/self.sim.resolution))
 
         # Adjoint run
-        # TODO make more dynamic
-        self.sim.run(until=self.time)
+        self.sim.run(until_after_sources=stop_when_dft_decayed(mdft, self.decay_dt, self.decay_fields, self.fcen, self.decay_by))
 
         # Store adjoint fields for each design basis in array (x,y,z,field_components,frequencies)
         # FIXME allow for multiple design regions
@@ -200,9 +203,8 @@ class OptimizationProblem(object):
         self.current_state = "ADJ"
 
     def calculate_gradient(self):
-        # Iterate through all design region bases
-        self.gradient = [self.basis[nb].gradient(self.d_E[nb], self.a_E[nb], self.design_grids[nb]) for nb in range(self.num_bases)]
-        
+        # Iterate through all design region bases and store gradient w.r.t. permittivity
+        self.gradient = [2*np.sum(np.real(self.a_E[nb]*self.d_E[nb]),axis=(3)) for nb in range(self.num_bases)]
         # Return optimizer's state to initialization
         self.current_state = "INIT"
     
@@ -219,7 +221,9 @@ class OptimizationProblem(object):
         self.sim.change_sources(self.forward_sources)
 
         # preallocate result vector
-        fd_gradient = 0*np.ones((self.num_design_params[basis_idx],))
+        dummy_inputs = [np.zeros((self.nf,))]*len(self.objective_arguments)
+        num_outputs = np.squeeze(self.objective_function(*dummy_inputs)).size
+        fd_gradient = 0*np.ones((self.num_design_params[basis_idx],num_outputs))
 
         # randomly choose indices to loop estimate
         fd_gradient_idx = np.random.choice(self.num_design_params[basis_idx],num_gradients,replace=False)
@@ -241,8 +245,9 @@ class OptimizationProblem(object):
             for m in self.objective_arguments:
                 m.register_monitors(self.fcen,self.df,self.nf)
             
-            # run simulation FIXME make dyanmic time
-            self.sim.run(until=self.time)
+            # add monitor used to track dft convergence
+            mdft = self.sim.add_dft_fields(self.decay_fields,self.fcen,self.df,1,center=self.design_regions[0].center,size=mp.Vector3(1/self.sim.resolution))
+            self.sim.run(until_after_sources=stop_when_dft_decayed(mdft, self.decay_dt, self.decay_fields, self.fcen, self.decay_by))
             
             # record final objective function value
             results_list = []
@@ -263,8 +268,9 @@ class OptimizationProblem(object):
             for m in self.objective_arguments:
                 m.register_monitors(self.fcen,self.df,self.nf)
             
-            # run simulation FIXME make dyanmic time
-            self.sim.run(until=self.time)
+            # add monitor used to track dft convergence
+            mdft = self.sim.add_dft_fields(self.decay_fields,self.fcen,self.df,1,center=self.design_regions[0].center,size=mp.Vector3(1/self.sim.resolution))
+            self.sim.run(until_after_sources=stop_when_dft_decayed(mdft, self.decay_dt, self.decay_fields, self.fcen, self.decay_by))
             
             # record final objective function value
             results_list = []
@@ -275,16 +281,19 @@ class OptimizationProblem(object):
             # -------------------------------------------- #
             # estimate derivative
             # -------------------------------------------- #
-            fd_gradient[k] = (fp - fm) / (2*db)
+            fd_gradient[k,:] = (fp - fm) / (2*db)
         
-        return fd_gradient, fd_gradient_idx
+        return np.squeeze(fd_gradient), fd_gradient_idx
     
     def update_design(self, rho_vector):
         """Update the design permittivity function.
+
+        rho_vector ....... a list of numpy arrays that maps to each design region
         """
-        #FIXME allow multiple rhovectors for multiple bases
-        for b in self.basis:
-            b.set_rho_vector(rho_vector)
+        for bi, b in enumerate(self.basis):
+            b.set_rho_vector(rho_vector[bi])
+        
+        self.sim.reset_meep()
 
     def plot2D(self,init_opt=False, **kwargs):
         """Produce a graphical visualization of the geometry and/or fields,
@@ -297,10 +306,26 @@ class OptimizationProblem(object):
 
         self.sim.plot2D(**kwargs)
 
-def plot_mesh(mesh,lc='g',lw=1):
-    """Helper function. Invoke FENICS/dolfin plotting routine to plot FEM mesh"""
-    try:
-        import dolfin as df
-        df.plot(mesh, color=lc, linewidth=lw)
-    except ImportError:
-        warnings.warn('failed to import dolfin module; omitting FEM mesh plot')
+def stop_when_dft_decayed(mon, dt, c, freq, decay_by):
+    closure = {
+        'previous_fields': np.array([1]*len(c)),
+        't0': 0,
+    }
+
+    def _stop(sim):
+        if sim.round_time() <= dt + closure['t0']:
+            return False
+        else:
+            current_fields = np.array([np.abs(sim.get_dft_array(mon, ic, 0))[0] ** 2 for ic in c])
+            
+            #quit()
+            previous_fields = closure['previous_fields']
+            relative_change = np.abs(previous_fields - current_fields) / previous_fields
+            closure['previous_fields'] = current_fields
+            closure['t0'] = sim.round_time()
+            idx = np.argmax(relative_change)
+            if mp.cvar.verbosity > 0:
+                fmt = "DFT decay(t = {0:1.1f}): abs({1:0.4e} - {2:0.4e}) / {3:0.4e} = {4:0.4e}"
+                print(fmt.format(sim.meep_time(), previous_fields[idx], current_fields[idx], previous_fields[idx], relative_change[idx]))
+            return relative_change[idx] <= decay_by
+    return _stop

@@ -294,7 +294,13 @@ class OptimizationProblem(object):
             b.set_rho_vector(rho_vector[bi])
         
         self.sim.reset_meep()
-
+        self.current_state = "INIT"
+    def get_objective_arguments(self):
+        '''Return list of evaluated objective arguments.
+        '''
+        objective_args_evaluation = [m.get_evaluation() for m in self.objective_arguments]
+        return objective_args_evaluation
+        
     def plot2D(self,init_opt=False, **kwargs):
         """Produce a graphical visualization of the geometry and/or fields,
            as appropriately autodetermined based on the current state of

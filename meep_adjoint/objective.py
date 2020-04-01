@@ -19,11 +19,13 @@ class ObjectiveQuantitiy(ABC):
     @abstractmethod
     def __call__(self):
         return
+    @abstractmethod
+    def get_evaluation(self):
+        return
 
 class EigenmodeCoefficient(ObjectiveQuantitiy):
     def __init__(self,sim,volume,mode,forward=True,k0=None,**kwargs):
         '''
-        time_src ............... time dependence of source
         '''
         self.sim = sim
         self.volume=volume
@@ -45,7 +47,9 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
         return self.monitor
     
     def place_adjoint_source(self,dJ,dt):
-        '''
+        '''Places an equivalent eigenmode monitor facing the opposite direction. Calculates the 
+        correct scaling/time profile.
+
         dJ ........ the user needs to pass the dJ/dMonitor evaluation
         dt ........ the timestep size from sim.fields.dt of the forward sim
         '''
@@ -113,3 +117,10 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
         self.freqs = np.atleast_1d(mp.get_eigenmode_freqs(self.monitor))
 
         return self.eval
+    def get_evaluation(self):
+        '''Returns the requested eigenmode coefficient.
+        '''
+        try:
+            return self.eval
+        except AttributeError:
+            raise RuntimeError("You must first run a forward simulation before resquesting an eigenmode coefficient.")

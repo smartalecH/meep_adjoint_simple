@@ -178,7 +178,7 @@ class OptimizationProblem(object):
             self.adjoint_sources.append(m.place_adjoint_source(dJ,self.dt)) # place the appropriate adjoint sources
         self.sim.change_sources(self.adjoint_sources)
 
-        # reregsiter design flux
+        # register design flux
         # TODO use yee grid directly 
         self.design_region_monitors = [self.sim.add_dft_fields([mp.Ex,mp.Ey,mp.Ez],self.fcen,self.df,self.nf,where=dr,yee_grid=False) for dr in self.design_regions]
 
@@ -322,9 +322,7 @@ def stop_when_dft_decayed(mon, dt, c, freq, decay_by):
         if sim.round_time() <= dt + closure['t0']:
             return False
         else:
-            current_fields = np.array([np.abs(sim.get_dft_array(mon, ic, 0))[0] ** 2 for ic in c])
-            
-            #quit()
+            current_fields = np.array([np.abs(sim.get_dft_array(mon, ic, 0))[1] ** 2 for ic in c])
             previous_fields = closure['previous_fields']
             relative_change = np.abs(previous_fields - current_fields) / previous_fields
             closure['previous_fields'] = current_fields

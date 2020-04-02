@@ -45,7 +45,7 @@ class BilinearInterpolationBasis(Basis):
     Simple bilinear interpolation basis set.
     '''
 
-    def __init__(self,Nx,Ny,**kwargs):
+    def __init__(self,Nx,Ny,symmetry=None,**kwargs):
         ''' 
         
         '''
@@ -58,21 +58,51 @@ class BilinearInterpolationBasis(Basis):
         super(BilinearInterpolationBasis, self).__init__(**kwargs)
 
         # Generate interpolation grid
-        self.rho_x = np.linspace(self.volume.center.x - self.volume.size.x/2,self.volume.center.x + self.volume.size.x/2,Nx)
-        self.rho_y = np.linspace(self.volume.center.y - self.volume.size.y/2,self.volume.center.y + self.volume.size.y/2,Ny)
-    
+        if symmetry is None:
+            self.symmetry = []
+        else:
+            self.symmetry = symmetry
+        
+        if mp.Y in set(self.symmetry): # symmetry across x axis
+            self.rho_x = np.linspace(self.volume.center.x,self.volume.center.x + self.volume.size.x/2,Nx)
+            self.mirror_Y = True
+        else:
+            self.rho_x = np.linspace(self.volume.center.x - self.volume.size.x/2,self.volume.center.x + self.volume.size.x/2,Nx)
+            self.mirror_Y = False
+        
+        if mp.X in set(self.symmetry): # symmetry across y axis
+            self.rho_y = np.linspace(self.volume.center.y,self.volume.center.y + self.volume.size.y/2,Ny)
+            self.mirror_X = True
+        else:
+            self.rho_y = np.linspace(self.volume.center.y - self.volume.size.y/2,self.volume.center.y + self.volume.size.y/2,Ny)
+            self.mirror_X = False
+
     def __call__(self, p):
-        weights, interp_idx = self.get_bilinear_row(p.x,p.y,self.rho_x,self.rho_y) # ignore z coordinate
+        x = 2*self.volume.center.x - p.x if self.mirror_Y and p.x < self.volume.center.x else p.x
+        y = 2*self.volume.center.y - p.y if self.mirror_X and p.y < self.volume.center.y else p.y
+
+        weights, interp_idx = self.get_bilinear_row(x,y,self.rho_x,self.rho_y) # ignore z coordinate
         return np.dot( self.rho_vector[interp_idx], weights )                  
 
     def get_basis_vjp(self,dJ_deps,design_grid):
         ''' get vector jacobian product of interpolator'''
         
         dg_Nx, dg_Ny, Nz, Nf = dJ_deps.shape # get important design grid dimensions
+        x_grid = design_grid.x
+        y_grid = design_grid.y
+        z_grid = design_grid.z
+        # take care of symmetries
+        if self.mirror_Y:
+            dJ_deps = dJ_deps[int(dg_Nx/2):,:,:,:]
+            x_grid = x_grid[int(dg_Nx/2):]
+        if self.mirror_X:
+            dJ_deps = dJ_deps[:,int(dg_Ny/2):,:,:]
+            y_grid = y_grid[int(dg_Nx/2):]
+        dg_Nx, dg_Ny, Nz, Nf = dJ_deps.shape # recalculate
         Nx, Ny = self.rho_x.size, self.rho_y.size # get important interpolator dimensions
-        
+
         # same interpolation matrix for all frequencies and all coordinates in Z direction
-        A = self.gen_interpolation_matrix(self.rho_x,self.rho_y,np.array(design_grid.x),np.array(design_grid.y),np.array(design_grid.z))
+        A = self.gen_interpolation_matrix(self.rho_x,self.rho_y,x_grid,y_grid,z_grid)
         # TODO ditch the for loops
         dJ_dp = np.zeros((Nx * Ny,Nf))
         for fi in range(Nf):

@@ -42,7 +42,7 @@ class EigenmodeCoefficient(ObjectiveQuantitiy):
         self.df=df
         self.nf=nf
 
-        self.monitor = self.sim.add_flux(self.fcen,self.df,self.nf,mp.FluxRegion(center=self.volume.center,size=self.volume.size))
+        self.monitor = self.sim.add_mode_monitor(self.fcen,self.df,self.nf,mp.FluxRegion(center=self.volume.center,size=self.volume.size))
         self.normal_direction = self.monitor.normal_direction
         return self.monitor
     
